@@ -1,8 +1,7 @@
-# 🚧 RoadSafe
+# 🚧 Pharos
 
 ### AI-Assisted Road Hazard Early-Warning & Risk Assessment System
-
-RoadSafe is a mobile-based road safety platform designed to warn drivers about potential road hazards such as **landslides, falling rocks, waterlogging, heavy rainfall, traffic congestion, and road blockages before they reach the danger zone**.
+Pharos is a mobile-based road safety platform designed to warn drivers about potential road hazards such as **landslides, falling rocks, waterlogging, heavy rainfall, traffic congestion, and road blockages before they reach the danger zone**.
 
 The project combines **real-time citizen reports, weather forecasts, terrain data, historical incidents, and route information** to calculate an explainable risk score for roads ahead.
 
@@ -20,7 +19,7 @@ Existing navigation applications primarily focus on:
 * Traffic congestion
 * Turn-by-turn navigation
 
-RoadSafe focuses on a different question:
+Pharos focuses on a different question:
 
 > **"What risks might I encounter on the road ahead?"**
 
@@ -30,7 +29,7 @@ The system analyzes upcoming road segments and provides an understandable risk l
 
 ## 💡 Solution
 
-RoadSafe:
+Pharos:
 
 1. Detects the user's current location and destination.
 2. Obtains possible routes using OpenStreetMap-based routing.
