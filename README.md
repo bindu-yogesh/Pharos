@@ -1,6 +1,7 @@
 # 🚧 Pharos
 
 ### AI-Assisted Road Hazard Early-Warning & Risk Assessment System
+
 Pharos is a mobile-based road safety platform designed to warn drivers about potential road hazards such as **landslides, falling rocks, waterlogging, heavy rainfall, traffic congestion, and road blockages before they reach the danger zone**.
 
 The project combines **real-time citizen reports, weather forecasts, terrain data, historical incidents, and route information** to calculate an explainable risk score for roads ahead.
@@ -73,6 +74,7 @@ The final score is capped at **100**.
 ### Why ETA matters
 
 pharos does not only consider the weather **right now**.
+Pharos does not only consider the weather **right now**.
 
 If a driver is expected to reach a particular road segment at 2:30 PM, the risk engine uses the **forecast around the estimated arrival time**.
 
@@ -298,6 +300,7 @@ PostGIS enables geospatial operations such as:
 
 ```text
 pharos/
+Pharos/
 │
 ├── app/
 │   └── Flutter mobile application
@@ -353,7 +356,7 @@ Interactive API documentation will be available through **FastAPI Swagger UI** a
 
 # 👥 Team
 
-RoadSafe is being developed as a **3-member engineering project**, with each member owning an end-to-end technical area.
+Pharos is being developed as a **3-member engineering project**, with each member owning an end-to-end technical area.
 
 | Member       | Role                             | Responsibility                                                                      |
 | ------------ | -------------------------------- | ----------------------------------------------------------------------------------- |
@@ -483,8 +486,8 @@ This allows the risk engine to be evaluated using measurable results rather than
 ### Planned setup
 
 ```bash
-git clone https://github.com/bindu-yogesh/RoadSafe.git
-cd RoadSafe
+git clone https://github.com/bindu-yogesh/Pharos.git
+cd Pharos
 docker compose up --build
 ```
 
@@ -560,6 +563,7 @@ Safe Places
 A 2–3 minute demonstration video will showcase:
 
 1. Opening the pharos dashboard
+1. Opening the Pharos dashboard
 2. Viewing current route risk
 3. Viewing reasons behind the risk score
 4. Reporting a road hazard
@@ -596,6 +600,6 @@ License information will be added before the first public release.
 
 ---
 
-### Built with ❤️ by the RoadSafe Team
+### Built with ❤️ by the Pharos Team
 
-**RoadSafe — Know the risk before you reach it.**
+**Pharos — Know the risk before you reach it.**
