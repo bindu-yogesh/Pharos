@@ -354,7 +354,7 @@ Interactive API documentation will be available through **FastAPI Swagger UI** a
 
 # 👥 Team
 
-RoadSafe is being developed as a **3-member engineering project**, with each member owning an end-to-end technical area.
+Pharos is being developed as a **3-member engineering project**, with each member owning an end-to-end technical area.
 
 | Member       | Role                             | Responsibility                                                                      |
 | ------------ | -------------------------------- | ----------------------------------------------------------------------------------- |
