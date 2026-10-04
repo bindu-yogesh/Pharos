@@ -5,7 +5,7 @@ Pharos is a mobile-based road safety platform designed to warn drivers about pot
 
 The project combines **real-time citizen reports, weather forecasts, terrain data, historical incidents, and route information** to calculate an explainable risk score for roads ahead.
 
-> ⚠️ **RoadSafe is an advisory prototype. It does not replace official government warnings, traffic instructions, or emergency services.**
+> ⚠️ **Pharos is an advisory prototype. It does not replace official government warnings, traffic instructions, or emergency services.**
 
 ---
 
@@ -46,7 +46,7 @@ Pharos:
 
 # 🧠 Explainable Risk Engine
 
-The core of RoadSafe is an **explainable, rule-based risk engine**.
+The core of Pharos is an **explainable, rule-based risk engine**.
 
 Each road segment receives a score between **0 and 100**.
 
@@ -72,11 +72,11 @@ The final score is capped at **100**.
 
 ### Why ETA matters
 
-RoadSafe does not only consider the weather **right now**.
+pharos does not only consider the weather **right now**.
 
 If a driver is expected to reach a particular road segment at 2:30 PM, the risk engine uses the **forecast around the estimated arrival time**.
 
-This allows RoadSafe to focus on potential hazards **ahead of the driver**, rather than only describing the current location.
+This allows Pharos to focus on potential hazards **ahead of the driver**, rather than only describing the current location.
 
 ---
 
@@ -151,7 +151,7 @@ This helps reduce false or outdated reports.
 
 ### 🌧️ Weather & Terrain Analysis
 
-RoadSafe combines:
+Pharos combines:
 
 * Rainfall forecasts
 * Visibility / fog information
@@ -297,7 +297,7 @@ PostGIS enables geospatial operations such as:
 # 📂 Repository Structure
 
 ```text
-RoadSafe/
+pharos/
 │
 ├── app/
 │   └── Flutter mobile application
@@ -385,7 +385,7 @@ test: add route risk tests
 
 # 📊 Evaluation
 
-RoadSafe will measure the system using actual project data rather than invented metrics.
+Pharos will measure the system using actual project data rather than invented metrics.
 
 Planned evaluation metrics:
 
@@ -404,7 +404,7 @@ Planned evaluation metrics:
 
 # 🧪 Backtesting
 
-Historical road incidents will be replayed against the risk engine to determine whether RoadSafe would have generated a sufficiently high risk score before an incident.
+Historical road incidents will be replayed against the risk engine to determine whether Pharos would have generated a sufficiently high risk score before an incident.
 
 The evaluation will measure:
 
@@ -506,7 +506,7 @@ Backend API documentation will be available at:
 
 # 🔐 Safety & Data Disclaimer
 
-RoadSafe is an experimental road-safety prototype.
+Pharos is an experimental road-safety prototype.
 
 Risk scores are generated from available datasets, forecasts, historical information, and community reports. They may contain inaccuracies or delays.
 
@@ -517,7 +517,7 @@ Users should:
 * Avoid dangerous roads when advised
 * Contact emergency services when necessary
 
-RoadSafe should **not be treated as a replacement for official emergency or disaster-management systems**.
+Pharos should **not be treated as a replacement for official emergency or disaster-management systems**.
 
 ---
 
@@ -559,7 +559,7 @@ Safe Places
 
 A 2–3 minute demonstration video will showcase:
 
-1. Opening the RoadSafe dashboard
+1. Opening the pharos dashboard
 2. Viewing current route risk
 3. Viewing reasons behind the risk score
 4. Reporting a road hazard
