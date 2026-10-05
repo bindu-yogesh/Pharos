@@ -73,6 +73,7 @@ The final score is capped at **100**.
 
 ### Why ETA matters
 
+pharos does not only consider the weather **right now**.
 Pharos does not only consider the weather **right now**.
 
 If a driver is expected to reach a particular road segment at 2:30 PM, the risk engine uses the **forecast around the estimated arrival time**.
@@ -298,6 +299,7 @@ PostGIS enables geospatial operations such as:
 # 📂 Repository Structure
 
 ```text
+pharos/
 Pharos/
 │
 ├── app/
@@ -484,7 +486,7 @@ This allows the risk engine to be evaluated using measurable results rather than
 ### Planned setup
 
 ```bash
-git clone https://github.com/bindu-yogesh/RoadSafe.git
+git clone https://github.com/bindu-yogesh/Pharos.git
 cd Pharos
 docker compose up --build
 ```
@@ -560,6 +562,7 @@ Safe Places
 
 A 2–3 minute demonstration video will showcase:
 
+1. Opening the pharos dashboard
 1. Opening the Pharos dashboard
 2. Viewing current route risk
 3. Viewing reasons behind the risk score
