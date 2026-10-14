@@ -1,3 +1,4 @@
+
 name: Pharos CI
 
 on:
@@ -13,6 +14,25 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgis/postgis:17-3.5
+        env:
+          POSTGRES_DB: pharos
+          POSTGRES_USER: pharos_user
+          POSTGRES_PASSWORD: pharos_password
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U pharos_user -d pharos"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql+psycopg://pharos_user:pharos_password@localhost:5432/pharos
+      JWT_SECRET: ci-test-secret
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -24,8 +44,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-            python -m pip install --upgrade pip
-            pip install -r requirements.txt
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Apply database migrations
+        run: alembic -c backend/alembic.ini upgrade head
 
       - name: Run tests
         run: pytest

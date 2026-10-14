@@ -1,7 +1,7 @@
-from .database import Base, engine
-from . import models
+
 from fastapi import FastAPI
-Base.metadata.create_all(bind=engine)
+
+from .models import User, Report
 
 app = FastAPI(
     title="Pharos API",
