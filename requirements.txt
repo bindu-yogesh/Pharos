@@ -6,3 +6,12 @@ geoalchemy2
 pytest
 requests
 PyYAML
+alembic
+pydantic-settings
+pyjwt
+bcrypt
+python-multipart
+slowapi
+httpx
+email-validator
+firebase-admin
