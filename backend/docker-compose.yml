@@ -1,0 +1,15 @@
+services:
+  db:
+    image: postgis/postgis:17-3.5
+    container_name: pharos-db
+    environment:
+      POSTGRES_DB: pharos
+      POSTGRES_USER: pharos_user
+      POSTGRES_PASSWORD: pharos_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
