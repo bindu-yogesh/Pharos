@@ -25,6 +25,7 @@ def calculate_risk(
     score = 0
     reasons = []
 
+    #represent the conditions as directories
     conditions = {
         "heavy_rain": heavy_rain,
         "landslide_history": landslide_history,
@@ -34,12 +35,13 @@ def calculate_risk(
         "low_visibility": low_visibility,
     }
 
+    #heart of the algorithm (scoring loop)
     for rule_name, is_active in conditions.items():
         if is_active:
             score += rules[rule_name]["points"]
             reasons.append(rule_name.replace("_", " ").capitalize())
 
-    score = min(score, max_score)
+    score = min(score, max_score) # ensure code does not exceeds 100
 
     if score <= 30:
         level = "Green"
