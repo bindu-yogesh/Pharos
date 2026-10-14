@@ -25,7 +25,7 @@ def calculate_risk(
     score = 0
     reasons = []
 
-    #represent the conditions as directories
+    # Store each risk factor and whether it is active.
     conditions = {
         "heavy_rain": heavy_rain,
         "landslide_history": landslide_history,
