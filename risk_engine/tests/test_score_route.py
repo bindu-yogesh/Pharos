@@ -5,7 +5,7 @@ from risk_engine.score_route import score_route_segments
 def test_all_route_segments_are_scored():
     results = score_route_segments()
 
-    assert len(results) == 18
+    assert len(results) == 28
 
 
 def test_every_segment_has_required_risk_fields():
