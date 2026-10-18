@@ -13,7 +13,7 @@ def load_segments():
 def test_route_segments_exist():
     segments = load_segments()
 
-    assert len(segments) == 18
+    assert len(segments) == 28
 
 
 def test_segment_ids_are_sequential():
@@ -21,7 +21,7 @@ def test_segment_ids_are_sequential():
 
     ids = [segment["segment_id"] for segment in segments]
 
-    assert ids == list(range(1, 19))
+    assert ids == list(range(1, 29))
 
 
 def test_required_fields_exist():

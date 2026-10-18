@@ -2,253 +2,393 @@
   {
     "segment_id": 1,
     "start": [
-      75.71258,
-      12.872639
+      75.721304,
+      12.879189
     ],
     "end": [
-      75.707289,
-      12.872251
+      75.717355,
+      12.879321
     ],
-    "length_m": 1005.9,
-    "elevation_start_m": 823.0,
-    "elevation_end_m": 821.0
+    "length_m": 1005.36,
+    "elevation_start_m": 864.0,
+    "elevation_end_m": 842.0
   },
   {
     "segment_id": 2,
     "start": [
-      75.707289,
-      12.872251
+      75.717355,
+      12.879321
     ],
     "end": [
-      75.703276,
-      12.865919
+      75.712264,
+      12.872186
     ],
-    "length_m": 1007.94,
-    "elevation_start_m": 821.0,
-    "elevation_end_m": 784.0
+    "length_m": 1031.15,
+    "elevation_start_m": 842.0,
+    "elevation_end_m": 832.0
   },
   {
     "segment_id": 3,
     "start": [
-      75.703276,
-      12.865919
+      75.712264,
+      12.872186
     ],
     "end": [
-      75.699884,
-      12.859799
+      75.706778,
+      12.87223
     ],
-    "length_m": 1018.84,
-    "elevation_start_m": 784.0,
-    "elevation_end_m": 732.0
+    "length_m": 1015.53,
+    "elevation_start_m": 832.0,
+    "elevation_end_m": 821.0
   },
   {
     "segment_id": 4,
     "start": [
-      75.699884,
-      12.859799
+      75.706778,
+      12.87223
     ],
     "end": [
-      75.695396,
-      12.858681
+      75.703016,
+      12.86508
     ],
-    "length_m": 1013.19,
-    "elevation_start_m": 732.0,
-    "elevation_end_m": 670.0
+    "length_m": 1034.42,
+    "elevation_start_m": 821.0,
+    "elevation_end_m": 778.0
   },
   {
     "segment_id": 5,
     "start": [
-      75.695396,
-      12.858681
+      75.703016,
+      12.86508
     ],
     "end": [
-      75.696778,
-      12.851153
+      75.69957,
+      12.858833
     ],
-    "length_m": 1009.28,
-    "elevation_start_m": 670.0,
-    "elevation_end_m": 604.0
+    "length_m": 1035.99,
+    "elevation_start_m": 778.0,
+    "elevation_end_m": 718.0
   },
   {
     "segment_id": 6,
     "start": [
-      75.696778,
-      12.851153
+      75.69957,
+      12.858833
     ],
     "end": [
-      75.692621,
-      12.847961
+      75.695499,
+      12.857793
     ],
-    "length_m": 1004.21,
-    "elevation_start_m": 604.0,
-    "elevation_end_m": 542.0
+    "length_m": 1016.99,
+    "elevation_start_m": 718.0,
+    "elevation_end_m": 655.0
   },
   {
     "segment_id": 7,
     "start": [
-      75.692621,
-      12.847961
+      75.695499,
+      12.857793
     ],
     "end": [
-      75.687829,
-      12.846074
+      75.696768,
+      12.850128
     ],
-    "length_m": 1008.41,
-    "elevation_start_m": 542.0,
-    "elevation_end_m": 509.0
+    "length_m": 1005.92,
+    "elevation_start_m": 655.0,
+    "elevation_end_m": 600.0
   },
   {
     "segment_id": 8,
     "start": [
-      75.687829,
-      12.846074
+      75.696768,
+      12.850128
     ],
     "end": [
-      75.682103,
-      12.844911
+      75.69207,
+      12.848687
     ],
-    "length_m": 1060.66,
-    "elevation_start_m": 509.0,
-    "elevation_end_m": 431.0
+    "length_m": 1005.33,
+    "elevation_start_m": 600.0,
+    "elevation_end_m": 530.0
   },
   {
     "segment_id": 9,
     "start": [
-      75.682103,
-      12.844911
+      75.69207,
+      12.848687
     ],
     "end": [
-      75.676811,
-      12.842382
+      75.686895,
+      12.84606
     ],
-    "length_m": 1006.64,
-    "elevation_start_m": 431.0,
-    "elevation_end_m": 382.0
+    "length_m": 1004.84,
+    "elevation_start_m": 530.0,
+    "elevation_end_m": 509.0
   },
   {
     "segment_id": 10,
     "start": [
-      75.676811,
-      12.842382
+      75.686895,
+      12.84606
     ],
     "end": [
-      75.668882,
-      12.839342
+      75.681502,
+      12.84492
     ],
-    "length_m": 1009.49,
-    "elevation_start_m": 382.0,
-    "elevation_end_m": 345.0
+    "length_m": 1016.25,
+    "elevation_start_m": 509.0,
+    "elevation_end_m": 435.0
   },
   {
     "segment_id": 11,
     "start": [
-      75.668882,
-      12.839342
+      75.681502,
+      12.84492
     ],
     "end": [
-      75.65993,
-      12.839395
+      75.676254,
+      12.842204
     ],
-    "length_m": 1013.15,
-    "elevation_start_m": 345.0,
-    "elevation_end_m": 327.0
+    "length_m": 1002.49,
+    "elevation_start_m": 435.0,
+    "elevation_end_m": 407.0
   },
   {
     "segment_id": 12,
     "start": [
-      75.65993,
-      12.839395
+      75.676254,
+      12.842204
     ],
     "end": [
-      75.653077,
-      12.833754
+      75.66822,
+      12.839387
     ],
-    "length_m": 1014.67,
-    "elevation_start_m": 327.0,
-    "elevation_end_m": 319.0
+    "length_m": 1020.32,
+    "elevation_start_m": 407.0,
+    "elevation_end_m": 330.0
   },
   {
     "segment_id": 13,
     "start": [
-      75.653077,
-      12.833754
+      75.66822,
+      12.839387
     ],
     "end": [
-      75.647433,
-      12.829727
+      75.659044,
+      12.839097
     ],
-    "length_m": 1011.25,
-    "elevation_start_m": 319.0,
-    "elevation_end_m": 328.0
+    "length_m": 1040.46,
+    "elevation_start_m": 330.0,
+    "elevation_end_m": 304.0
   },
   {
     "segment_id": 14,
     "start": [
-      75.647433,
-      12.829727
+      75.659044,
+      12.839097
     ],
     "end": [
-      75.638623,
-      12.828676
+      75.652167,
+      12.833274
     ],
-    "length_m": 1026.27,
-    "elevation_start_m": 328.0,
-    "elevation_end_m": 288.0
+    "length_m": 1025.66,
+    "elevation_start_m": 304.0,
+    "elevation_end_m": 284.0
   },
   {
     "segment_id": 15,
     "start": [
-      75.638623,
-      12.828676
+      75.652167,
+      12.833274
     ],
     "end": [
-      75.629835,
-      12.829331
+      75.646492,
+      12.82917
     ],
-    "length_m": 1003.78,
-    "elevation_start_m": 288.0,
-    "elevation_end_m": 285.0
+    "length_m": 1030.25,
+    "elevation_start_m": 284.0,
+    "elevation_end_m": 346.0
   },
   {
     "segment_id": 16,
     "start": [
-      75.629835,
-      12.829331
+      75.646492,
+      12.82917
     ],
     "end": [
-      75.620849,
-      12.829506
+      75.637486,
+      12.828797
     ],
-    "length_m": 1010.87,
-    "elevation_start_m": 285.0,
-    "elevation_end_m": 278.0
+    "length_m": 1021.61,
+    "elevation_start_m": 346.0,
+    "elevation_end_m": 284.0
   },
   {
     "segment_id": 17,
     "start": [
-      75.620849,
-      12.829506
+      75.637486,
+      12.828797
     ],
     "end": [
-      75.611575,
-      12.828619
+      75.628306,
+      12.829174
     ],
-    "length_m": 1045.06,
-    "elevation_start_m": 278.0,
-    "elevation_end_m": 257.0
+    "length_m": 1050.15,
+    "elevation_start_m": 284.0,
+    "elevation_end_m": 280.0
   },
   {
     "segment_id": 18,
     "start": [
-      75.611575,
-      12.828619
+      75.628306,
+      12.829174
     ],
     "end": [
-      75.604301,
-      12.827686
+      75.619398,
+      12.829348
     ],
-    "length_m": 944.6,
-    "elevation_start_m": 257.0,
-    "elevation_end_m": 227.0
+    "length_m": 1006.8,
+    "elevation_start_m": 280.0,
+    "elevation_end_m": 268.0
+  },
+  {
+    "segment_id": 19,
+    "start": [
+      75.619398,
+      12.829348
+    ],
+    "end": [
+      75.610492,
+      12.828895
+    ],
+    "length_m": 1005.63,
+    "elevation_start_m": 268.0,
+    "elevation_end_m": 229.0
+  },
+  {
+    "segment_id": 20,
+    "start": [
+      75.610492,
+      12.828895
+    ],
+    "end": [
+      75.602758,
+      12.828156
+    ],
+    "length_m": 1002.81,
+    "elevation_start_m": 229.0,
+    "elevation_end_m": 215.0
+  },
+  {
+    "segment_id": 21,
+    "start": [
+      75.602758,
+      12.828156
+    ],
+    "end": [
+      75.595143,
+      12.830836
+    ],
+    "length_m": 1025.33,
+    "elevation_start_m": 215.0,
+    "elevation_end_m": 217.0
+  },
+  {
+    "segment_id": 22,
+    "start": [
+      75.595143,
+      12.830836
+    ],
+    "end": [
+      75.587987,
+      12.831628
+    ],
+    "length_m": 1015.32,
+    "elevation_start_m": 217.0,
+    "elevation_end_m": 181.0
+  },
+  {
+    "segment_id": 23,
+    "start": [
+      75.587987,
+      12.831628
+    ],
+    "end": [
+      75.582288,
+      12.827505
+    ],
+    "length_m": 1024.1,
+    "elevation_start_m": 181.0,
+    "elevation_end_m": 164.0
+  },
+  {
+    "segment_id": 24,
+    "start": [
+      75.582288,
+      12.827505
+    ],
+    "end": [
+      75.572973,
+      12.827935
+    ],
+    "length_m": 1034.8,
+    "elevation_start_m": 164.0,
+    "elevation_end_m": 143.0
+  },
+  {
+    "segment_id": 25,
+    "start": [
+      75.572973,
+      12.827935
+    ],
+    "end": [
+      75.565071,
+      12.831432
+    ],
+    "length_m": 1010.11,
+    "elevation_start_m": 143.0,
+    "elevation_end_m": 142.0
+  },
+  {
+    "segment_id": 26,
+    "start": [
+      75.565071,
+      12.831432
+    ],
+    "end": [
+      75.558275,
+      12.836043
+    ],
+    "length_m": 1049.3,
+    "elevation_start_m": 142.0,
+    "elevation_end_m": 142.0
+  },
+  {
+    "segment_id": 27,
+    "start": [
+      75.558275,
+      12.836043
+    ],
+    "end": [
+      75.549429,
+      12.83498
+    ],
+    "length_m": 1002.45,
+    "elevation_start_m": 142.0,
+    "elevation_end_m": 122.0
+  },
+  {
+    "segment_id": 28,
+    "start": [
+      75.549429,
+      12.83498
+    ],
+    "end": [
+      75.542298,
+      12.831463
+    ],
+    "length_m": 1027.05,
+    "elevation_start_m": 122.0,
+    "elevation_end_m": 124.0
   }
 ]
