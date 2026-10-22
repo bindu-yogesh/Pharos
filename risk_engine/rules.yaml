@@ -1,0 +1,43 @@
+risk_rules:
+  heavy_rain:
+    points: 30
+    description: "Heavy rain increases road risk"
+
+  landslide_history:
+    points: 25
+    description: "Historical landslide incidents increase risk"
+
+  steep_slope:
+    points: 20
+    description: "Steep road segments increase risk"
+
+  recent_hazard_report:
+    points: 40
+    description: "Recent falling-rock or landslide report"
+
+  heavy_traffic:
+    points: 25
+    description: "Heavy traffic increases risk"
+
+  low_visibility:
+    points: 15
+    description: "Low visibility or fog increases risk"
+
+risk_levels:
+  green:
+    min: 0
+    max: 30
+
+  yellow:
+    min: 31
+    max: 50
+
+  orange:
+    min: 51
+    max: 75
+
+  red:
+    min: 76
+    max: 100
+
+max_score: 100
