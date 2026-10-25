@@ -1,13 +1,16 @@
+import os
 from datetime import datetime, timedelta, timezone
+from urllib.parse import urlparse
 
 import bcrypt
 from geoalchemy2 import WKTElement
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 
+from backend.app.core.config import settings
 from backend.app.database import SessionLocal
-from backend.app.models.user import User
 from backend.app.models.report import Report
+from backend.app.models.user import User
 
 
 SEED_USERS = [
@@ -32,8 +35,8 @@ SEED_USERS = [
 ]
 
 
-# Development-only sample points around the Shiradi Ghat corridor.
-# These are synthetic test points, not verified historical incident locations.
+# Synthetic development/test data only.
+# These are NOT verified historical incident locations.
 SEED_REPORTS = [
     {
         "type": "landslide",
@@ -79,12 +82,34 @@ def hash_password(password: str) -> str:
     return bcrypt.hashpw(password_bytes, salt).decode("utf-8")
 
 
+def validate_development_database() -> None:
+    """Fail closed unless configured for the expected local demo database."""
+    if os.getenv("PHAROS_ENV", "").lower() != "development":
+        raise RuntimeError(
+            "Seed script is development-only. "
+            "Set PHAROS_ENV=development to run it."
+        )
+
+    database_url = urlparse(settings.database_url)
+
+    if (
+        database_url.scheme != "postgresql+psycopg"
+        or database_url.hostname not in {"localhost", "127.0.0.1"}
+        or database_url.port != 5433
+        or database_url.path != "/pharos"
+        or database_url.username != "pharos_user"
+    ):
+        raise RuntimeError(
+            "Seeding blocked: database URL is not the expected "
+            "local Pharos development database."
+        )
+
+
 def seed() -> None:
     with SessionLocal() as session:
-
-        # Upsert seed users by their unique email.
         seeded_users = {}
 
+        # Upsert development users by unique email.
         for user_data in SEED_USERS:
             values = {
                 "name": user_data["name"],
@@ -97,83 +122,71 @@ def seed() -> None:
             }
 
             statement = insert(User).values(**values)
-
             statement = statement.on_conflict_do_update(
                 index_elements=[User.email],
                 set_={
                     "name": statement.excluded.name,
                     "role": statement.excluded.role,
-                    "preferred_language": statement.excluded.preferred_language,
+                    "preferred_language": (
+                        statement.excluded.preferred_language
+                    ),
                 },
             )
-
             session.execute(statement)
 
         session.flush()
 
-        # Retrieve seeded users.
         for user_data in SEED_USERS:
             user = session.scalar(
-                select(User).where(
-                    User.email == user_data["email"]
-                )
+                select(User).where(User.email == user_data["email"])
             )
-
             if user is None:
                 raise RuntimeError(
-                    f"Failed to create seed user: {user_data['email']}"
+                    f"Failed to retrieve seed user: {user_data['email']}"
                 )
-
             seeded_users[user_data["email"]] = user
 
-        # Use stable descriptions to avoid duplicate sample reports.
         driver_emails = [
             "driver1.seed@pharos.local",
             "driver2.seed@pharos.local",
         ]
 
         for index, report_data in enumerate(SEED_REPORTS):
-
             existing = session.scalar(
                 select(Report).where(
                     Report.description == report_data["description"]
                 )
             )
-
             if existing is not None:
                 continue
 
             driver = seeded_users[
                 driver_emails[index % len(driver_emails)]
             ]
-
-            # Use one UTC timestamp for both fields.
             now = datetime.now(timezone.utc).replace(tzinfo=None)
 
-            report = Report(
-                user_id=driver.id,
-                type=report_data["type"],
-                severity=report_data["severity"],
-                description=report_data["description"],
-                geom=WKTElement(
-                    f"POINT({report_data['longitude']} "
-                    f"{report_data['latitude']})",
-                    srid=4326,
-                ),
-                status="active",
-                created_at=now,
-                expires_at=now + timedelta(hours=24),
+            session.add(
+                Report(
+                    user_id=driver.id,
+                    type=report_data["type"],
+                    severity=report_data["severity"],
+                    description=report_data["description"],
+                    geom=WKTElement(
+                        f"POINT({report_data['longitude']} "
+                        f"{report_data['latitude']})",
+                        srid=4326,
+                    ),
+                    status="active",
+                    created_at=now,
+                    expires_at=now + timedelta(hours=24),
+                )
             )
-
-            session.add(report)
 
         session.commit()
 
-    print(
-        "Seed complete: 1 admin, 2 drivers, "
-        "and up to 5 sample reports."
-    )
+    print("Development seed complete: 3 users and up to 5 sample reports.")
 
 
 if __name__ == "__main__":
+    validate_development_database()
     seed()
