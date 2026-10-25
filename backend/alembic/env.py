@@ -6,7 +6,7 @@ from sqlalchemy import engine_from_config, pool
 
 from backend.app.core.config import settings
 from backend.app.database import Base
-from backend.app.models import Report, User  # noqa: F401
+from backend.app import models  # noqa: F401
 
 config = context.config
 
@@ -20,6 +20,24 @@ config.set_main_option(
 
 target_metadata = Base.metadata
 
+# Only manage tables owned by Pharos. Never autogenerate changes
+# for PostGIS, TIGER geocoder, or other extension-managed tables.
+PHAROS_TABLES = {
+    "users",
+    "reports",
+    "report_votes",
+    "road_segments",
+    "incidents_history",
+    "trips",
+    "device_tokens",
+}
+
+
+def include_name(name, type_, parent_names):
+    if type_ == "table":
+        return name in PHAROS_TABLES
+    return True
+
 
 def run_migrations_offline() -> None:
     url = settings.database_url
@@ -30,6 +48,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_name=include_name,
     )
 
     with context.begin_transaction():
@@ -48,6 +67,7 @@ def run_migrations_online() -> None:
             connection=connection,
             target_metadata=target_metadata,
             compare_type=True,
+            include_name=include_name,
         )
 
         with context.begin_transaction():
