@@ -1,8 +1,8 @@
-
 from fastapi import FastAPI
 
 from .models import User, Report
 from .routers.auth import router as auth_router, profile_router
+from .routers.reports import router as reports_router
 
 
 app = FastAPI(
@@ -16,6 +16,9 @@ app.include_router(auth_router)
 
 # User profile endpoint: PUT /user/profile
 app.include_router(profile_router)
+
+# Hazard report endpoints
+app.include_router(reports_router)
 
 
 @app.get("/")
