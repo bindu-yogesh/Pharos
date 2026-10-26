@@ -1,7 +1,8 @@
 
 import json
 from pathlib import Path
-
+from risk_engine.incident_data import load_incidents
+from risk_engine.incident_matching import match_incidents_to_segments
 from risk_engine.scorer import calculate_risk
 from risk_engine.weather_data import (
     get_district_rainfall,
@@ -45,6 +46,14 @@ def score_route_segments(district=None, observation_date=None):
     heavy_rain = is_heavy_rain(rainfall_observation) is True
 
     segments = load_route_segments()
+    incidents = load_incidents()
+
+    incident_matches = match_incidents_to_segments(
+        incidents,
+        segments,
+        max_distance_m=500,
+    )
+
     results = []
 
     for segment in segments:
@@ -53,12 +62,17 @@ def score_route_segments(district=None, observation_date=None):
         # Detects both steep climbs and steep descents.
         is_steep = abs(slope) >= STEEP_SLOPE_THRESHOLD
 
+        incident_ids = incident_matches[segment["segment_id"]]
+        has_landslide_history = len(incident_ids) > 0
+
         risk = calculate_risk(
             steep_slope=is_steep,
             heavy_rain=heavy_rain,
+            landslide_history=has_landslide_history,
         )
 
         results.append({
+            "historical_incident_ids": incident_ids,
             "segment_id": segment["segment_id"],
             "length_m": segment["length_m"],
             "slope_percent": slope,
