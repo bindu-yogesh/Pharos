@@ -7,6 +7,7 @@ from .routers.reports import router as reports_router
 
 app = FastAPI(
     title="Pharos API",
+    description="Backend API for the Pharos road safety system",
     version="0.1.0",
 )
 

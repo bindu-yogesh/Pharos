@@ -1,11 +1,9 @@
 import requests
 
 
-# Temporary route points for OSRM testing.
-# Final Shiradi Ghat coordinates will be verified later.
-start = (75.71261, 12.87261)
-end = (75.605, 12.806)
-
+# Candidate Shiradi Ghat corridor endpoints on NH-75.
+start = (75.720794, 12.879555)  # Maranahalli
+end = (75.542298, 12.831463)   # Candidate endpoint near Addahole
 
 def create_segments(coordinates, edge_distances, target_length_m=1000):
     """
