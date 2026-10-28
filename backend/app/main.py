@@ -4,6 +4,8 @@ from .models import User, Report
 from .routers.auth import router as auth_router, profile_router
 from .routers.reports import router as reports_router
 from .routers.admin import router as admin_router
+from .routers.routes import router as routes_router
+from .routers.trips import router as trips_router
 
 
 app = FastAPI(
@@ -21,6 +23,8 @@ app.include_router(profile_router)
 # Hazard report endpoints
 app.include_router(reports_router)
 app.include_router(admin_router)
+app.include_router(routes_router)
+app.include_router(trips_router)
 
 @app.get("/")
 def root():
