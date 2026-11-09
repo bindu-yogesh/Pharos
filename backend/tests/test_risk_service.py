@@ -8,7 +8,7 @@ from backend.app.services import risk_service
 
 def test_complete_assessment_uses_existing_scorer(monkeypatch):
     db = Mock()
-    db.scalar.side_effect = [1, 2]
+    db.scalar.side_effect = [1,None, 2]
 
     expected = {
         "score": 65,
@@ -51,7 +51,7 @@ def test_complete_assessment_uses_existing_scorer(monkeypatch):
 
 def test_unknown_inputs_do_not_generate_a_score(monkeypatch):
     db = Mock()
-    db.scalar.side_effect = [None, None]
+    db.scalar.side_effect = [None,None,None]
     scorer = Mock()
     monkeypatch.setattr(risk_service, "calculate_risk", scorer)
 
@@ -95,3 +95,60 @@ def test_invalid_slope_threshold_is_rejected():
             low_visibility=False,
             heavy_traffic=False,
         )
+
+
+def test_unlocated_historical_incidents_remain_unknown(monkeypatch):
+    db = Mock()
+    # No nearby geocoded incident, unlocated incident exists,
+    # no nearby active hazard report.
+    db.scalar.side_effect = [None, 99, None]
+
+    scorer = Mock()
+    monkeypatch.setattr(risk_service, "calculate_risk", scorer)
+
+    result = risk_service.assess_segment_risk(
+        db,
+        start=[75.0, 12.0],
+        end=[75.01, 12.01],
+        slope_percent=5.0,
+        slope_threshold_percent=6.0,
+        heavy_rain=False,
+        low_visibility=False,
+        heavy_traffic=False,
+    )
+
+    assert result["risk_flags"]["landslide_history"] is None
+    assert result["risk_assessment"] == "incomplete"
+    assert "landslide_history" in result["risk_data_gaps"]
+    scorer.assert_not_called()
+
+
+def test_nearby_historical_incident_is_true_even_with_unlocated_records(
+    monkeypatch,
+):
+    db = Mock()
+    db.scalar.side_effect = [12, 99, None]
+
+    expected = {
+        "score": 65,
+        "level": "Orange",
+        "reasons": ["Landslide history"],
+    }
+    scorer = Mock(return_value=expected)
+    monkeypatch.setattr(risk_service, "calculate_risk", scorer)
+
+    result = risk_service.assess_segment_risk(
+        db,
+        start=[75.0, 12.0],
+        end=[75.01, 12.01],
+        slope_percent=6.0,
+        slope_threshold_percent=6.0,
+        heavy_rain=False,
+        low_visibility=False,
+        heavy_traffic=False,
+    )
+
+    assert result["risk_flags"]["landslide_history"] is True
+    assert result["risk_flags"]["steep_slope"] is True
+    assert result["risk_assessment"] == "complete"
+    scorer.assert_called_once()
