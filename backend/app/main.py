@@ -6,6 +6,8 @@ from .routers.reports import router as reports_router
 from .routers.admin import router as admin_router
 from .routers.routes import router as routes_router
 from .routers.trips import router as trips_router
+from .routers.devices import router as devices_router
+
 
 
 app = FastAPI(
@@ -25,6 +27,7 @@ app.include_router(reports_router)
 app.include_router(admin_router)
 app.include_router(routes_router)
 app.include_router(trips_router)
+app.include_router(devices_router)
 
 @app.get("/")
 def root():

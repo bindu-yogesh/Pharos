@@ -1,3 +1,4 @@
+
 import pytest
 from unittest.mock import AsyncMock, patch
 
@@ -9,6 +10,7 @@ from backend.app.routers.routes import (
     calculate_bearing,
     calculate_bearing_difference,
 )
+
 
 def get_auth_headers(client, email):
     password = "TestPassword123!"
@@ -87,6 +89,7 @@ def test_risk_validation_and_unavailable_status(client):
     assert response.json()["risk_score"] is None
     assert response.json()["risk_assessment"] == "incomplete"
 
+
 def test_trip_start_requires_authentication(client):
     response = client.post(
         "/trips/start",
@@ -158,10 +161,15 @@ def test_risk_matched_road_segment(client, db_session):
     db_session.add(segment)
     db_session.flush()
 
-    response = client.get(
-        "/risk",
-        params={"lat": 12.0, "lon": 75.005},
-    )
+    with patch(
+        "backend.app.routers.routes.get_weather_forecast",
+        new_callable=AsyncMock,
+        return_value=None,
+    ):
+        response = client.get(
+            "/risk",
+            params={"lat": 12.0, "lon": 75.005},
+        )
 
     assert response.status_code == 200
     body = response.json()
@@ -194,6 +202,7 @@ def test_risk_unmatched_location_returns_no_score(client):
         for gap in body["risk_data_gaps"]
     )
 
+
 def test_calculate_bearing_directions():
     north = calculate_bearing(75.0, 12.0, 75.0, 13.0)
     east = calculate_bearing(75.0, 12.0, 76.0, 12.0)
@@ -210,3 +219,100 @@ def test_two_way_heading_difference():
 def test_heading_difference_wraps_at_north():
     assert calculate_bearing_difference(0.0, 355.0) == 5.0
     assert calculate_bearing_difference(0.0, 5.0) == 5.0
+
+def test_risk_passes_weather_flags_to_risk_assessment(
+    client, db_session
+):
+    segment = RoadSegment(
+        segment_no=987656,
+        geom=WKTElement(
+            "LINESTRING(75.0 12.0, 75.01 12.0)",
+            srid=4326,
+        ),
+        length_m=1000.0,
+        elevation_start_m=100.0,
+        elevation_end_m=102.0,
+        slope_percent=0.2,
+    )
+    db_session.add(segment)
+    db_session.flush()
+
+    weather = {
+        "forecast_time": "2026-11-09T10:00:00",
+        "precipitation_mm": 20.0,
+        "visibility_m": 500.0,
+        "source": "Open-Meteo",
+    }
+
+    mock_risk_result = {
+        "risk_assessment": "incomplete",
+        "score": None,
+        "level": None,
+        "risk_flags": None,
+        "reasons": [],
+        "risk_data_gaps": ["heavy_traffic"],
+    }
+
+    with patch(
+        "backend.app.routers.routes.get_weather_forecast",
+        new_callable=AsyncMock,
+        return_value=weather,
+    ), patch(
+        "backend.app.routers.routes.assess_segment_risk",
+        return_value=mock_risk_result,
+    ) as mock_assess:
+
+        response = client.get(
+            "/risk",
+            params={"lat": 12.0, "lon": 75.005},
+        )
+
+    assert response.status_code == 200
+
+    # Verify weather classification reached the risk engine.
+    kwargs = mock_assess.call_args.kwargs
+
+    assert kwargs["heavy_rain"] is True
+    assert kwargs["low_visibility"] is True
+    assert kwargs["heavy_traffic"] is None
+
+    # Verify weather is included in the API response.
+    body = response.json()
+    assert body["segments"][0]["weather_forecast"] == weather
+
+def test_risk_weather_failure_keeps_assessment_incomplete(
+    client, db_session
+):
+    segment = RoadSegment(
+        segment_no=987657,
+        geom=WKTElement(
+            "LINESTRING(75.0 12.0, 75.01 12.0)",
+            srid=4326,
+        ),
+        length_m=1000.0,
+        elevation_start_m=100.0,
+        elevation_end_m=102.0,
+        slope_percent=0.2,
+    )
+    db_session.add(segment)
+    db_session.flush()
+
+    with patch(
+        "backend.app.routers.routes.get_weather_forecast",
+        new_callable=AsyncMock,
+        side_effect=Exception("Weather service unavailable"),
+    ):
+        response = client.get(
+            "/risk",
+            params={"lat": 12.0, "lon": 75.005},
+        )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["risk_assessment"] == "incomplete"
+    assert body["risk_score"] is None
+    assert body["risk_level"] is None
+    assert "heavy_rain" in body["risk_data_gaps"]
+    assert "low_visibility" in body["risk_data_gaps"]
