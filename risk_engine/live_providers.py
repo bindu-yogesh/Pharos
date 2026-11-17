@@ -87,7 +87,12 @@ def fetch_weather_for_segments(segments, arrival_times, client=httpx):
                 continue
 
             rain_value, visibility_value = rain[index], visibility[index]
-            if not _valid_number(rain_value) or not _valid_number(visibility_value):
+            if (
+                not _valid_number(rain_value)
+                or not _valid_number(visibility_value)
+                or rain_value < 0
+                or visibility_value < 0
+            ):
                 results.append(None)
                 continue
 
@@ -140,6 +145,7 @@ def fetch_traffic_for_segment(latitude, longitude, client=httpx):
             _valid_number(current)
             and _valid_number(free_flow)
             and _valid_number(confidence)
+            and current >= 0
             and free_flow > 0
             and MIN_TRAFFIC_CONFIDENCE <= confidence <= 1
             and isinstance(closure, bool)

@@ -1,5 +1,7 @@
 import pytest
+import yaml
 
+import risk_engine.scorer as scorer
 from risk_engine.scorer import calculate_risk
 
 
@@ -118,3 +120,30 @@ def test_all_known_false_factors_produce_zero_risk():
 def test_invalid_factor_value_is_rejected():
     with pytest.raises(TypeError):
         calculate_risk(heavy_rain="unknown")
+
+
+
+def test_load_rules_rejects_negative_rule_points(monkeypatch, tmp_path):
+    config = yaml.safe_load(scorer.RULES_FILE.read_text(encoding="utf-8"))
+    config["risk_rules"]["heavy_rain"]["points"] = -1
+
+    rules_file = tmp_path / "invalid_rules.yaml"
+    rules_file.write_text(yaml.safe_dump(config), encoding="utf-8")
+    monkeypatch.setattr(scorer, "RULES_FILE", rules_file)
+
+    with pytest.raises(ValueError, match="non-negative integer"):
+        scorer.load_rules()
+
+
+
+
+def test_load_rules_rejects_gaps_in_risk_levels(monkeypatch, tmp_path):
+    config = yaml.safe_load(scorer.RULES_FILE.read_text(encoding="utf-8"))
+    config["risk_levels"]["yellow"]["min"] = 32
+
+    rules_file = tmp_path / "invalid_rules.yaml"
+    rules_file.write_text(yaml.safe_dump(config), encoding="utf-8")
+    monkeypatch.setattr(scorer, "RULES_FILE", rules_file)
+
+    with pytest.raises(ValueError, match="contiguous"):
+        scorer.load_rules()

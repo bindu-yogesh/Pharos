@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 
 import httpx
+import pytest
 
 from risk_engine import live_providers as providers
 
@@ -172,3 +173,45 @@ def test_recent_hazard_database_failure_returns_unknown(monkeypatch):
     result = providers.fetch_recent_hazard_matches([])
 
     assert result is None
+
+@pytest.mark.parametrize(
+    "rainfall, visibility",
+    [(-1.0, 800.0), (9.0, -1.0)],
+)
+def test_weather_provider_rejects_negative_measurements(rainfall, visibility):
+    eta = datetime(2026, 11, 17, 15, 30, tzinfo=timezone.utc)
+
+    class Client:
+        @staticmethod
+        def get(url, **kwargs):
+            return MockResponse([{
+                "hourly": {
+                    "time": ["2026-11-17T21:00"],
+                    "precipitation": [rainfall],
+                    "visibility": [visibility],
+                }
+            }])
+
+    segment = {"start": [75.7, 12.8], "end": [75.8, 12.9]}
+    assert providers.fetch_weather_for_segments(
+        [segment], [eta], Client()
+    ) == [None]
+
+
+def test_traffic_provider_rejects_negative_current_speed(monkeypatch):
+    monkeypatch.setenv("TOMTOM_API_KEY", "test-key")
+    providers._cache.clear()
+
+    class Client:
+        @staticmethod
+        def get(url, **kwargs):
+            return MockResponse({
+                "flowSegmentData": {
+                    "currentSpeed": -5,
+                    "freeFlowSpeed": 60,
+                    "confidence": 0.9,
+                    "roadClosure": False,
+                }
+            })
+
+    assert providers.fetch_traffic_for_segment(12.8, 75.7, Client()) is None

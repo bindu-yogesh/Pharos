@@ -323,3 +323,24 @@ def test_invalid_or_unmatched_osrm_geometry_is_rejected(monkeypatch, geometry):
     response = client.post("/route", json=FORWARD_PAYLOAD)
 
     assert response.status_code == 502
+
+
+
+def test_osrm_invalid_json_returns_bad_gateway(monkeypatch):
+    class InvalidJSONResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            raise ValueError("simulated invalid JSON")
+
+    monkeypatch.setattr(
+        route_api.httpx,
+        "get",
+        lambda *args, **kwargs: InvalidJSONResponse(),
+    )
+
+    response = client.post("/route", json=FORWARD_PAYLOAD)
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "OSRM returned invalid JSON."

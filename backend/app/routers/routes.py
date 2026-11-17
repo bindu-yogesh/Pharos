@@ -193,6 +193,8 @@ def assess_route(request: RouteRequest):
         raise HTTPException(status_code=503, detail="Unable to connect to OSRM.") from error
     except httpx.HTTPStatusError as error:
         raise HTTPException(status_code=502, detail="OSRM returned an unsuccessful response.") from error
+    except ValueError as error:
+        raise HTTPException(status_code=502, detail="OSRM returned invalid JSON.") from error
 
     if (
         not isinstance(data, dict)
