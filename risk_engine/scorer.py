@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import yaml
 
 
@@ -9,7 +9,11 @@ def load_rules():
     with open(RULES_FILE, "r", encoding="utf-8") as file:
         config = yaml.safe_load(file)
 
-    return config["risk_rules"], config["max_score"]
+    return (
+        config["risk_rules"],
+        config["risk_levels"],
+        config["max_score"],
+    )
 
 
 def calculate_risk(
@@ -20,12 +24,8 @@ def calculate_risk(
     heavy_traffic=False,
     low_visibility=False,
 ):
-    rules, max_score = load_rules()
+    rules, risk_levels, max_score = load_rules()
 
-    score = 0
-    reasons = []
-
-    # Store each risk factor and whether it is active.
     conditions = {
         "heavy_rain": heavy_rain,
         "landslide_history": landslide_history,
@@ -35,25 +35,49 @@ def calculate_risk(
         "low_visibility": low_visibility,
     }
 
-    #heart of the algorithm (scoring loop)
+    score = 0
+    reasons = []
+    missing_factors = []
+
     for rule_name, is_active in conditions.items():
+        if is_active is None:
+            missing_factors.append(rule_name)
+            continue
+
+        if not isinstance(is_active, bool):
+            raise TypeError(f"{rule_name} must be True, False, or None")
+
         if is_active:
             score += rules[rule_name]["points"]
             reasons.append(rule_name.replace("_", " ").capitalize())
 
-    score = min(score, max_score) # ensure code does not exceeds 100
+    score = min(score, max_score)
 
-    if score <= 30:
-        level = "Green"
-    elif score <= 50:
-        level = "Yellow"
-    elif score <= 75:
-        level = "Orange"
-    else:
-        level = "Red"
+    if missing_factors:
+        return {
+            "score": None,
+            "known_score": score,
+            "level": None,
+            "reasons": reasons,
+            "status": "incomplete",
+            "missing_factors": missing_factors,
+        }
+
+    level = None
+
+    for level_name, boundaries in risk_levels.items():
+        if boundaries["min"] <= score <= boundaries["max"]:
+            level = level_name.capitalize()
+            break
+
+    if level is None:
+        raise ValueError(f"Risk score {score} does not fit any configured risk level")
 
     return {
         "score": score,
+        "known_score": score,
         "level": level,
         "reasons": reasons,
+        "status": "complete",
+        "missing_factors": [],
     }

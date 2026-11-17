@@ -89,3 +89,32 @@ def test_risk_levels(expected_score, expected_level, kwargs):
 
     assert result["score"] == expected_score
     assert result["level"] == expected_level
+def test_unknown_factor_makes_assessment_incomplete():
+    result = calculate_risk(heavy_rain=True, heavy_traffic=None)
+
+    assert result["score"] is None
+    assert result["known_score"] == 30
+    assert result["level"] is None
+    assert result["status"] == "incomplete"
+    assert result["missing_factors"] == ["heavy_traffic"]
+    assert "Heavy rain" in result["reasons"]
+
+
+def test_all_known_false_factors_produce_zero_risk():
+    result = calculate_risk(
+        heavy_rain=False,
+        landslide_history=False,
+        steep_slope=False,
+        recent_hazard_report=False,
+        heavy_traffic=False,
+        low_visibility=False,
+    )
+
+    assert result["score"] == 0
+    assert result["level"] == "Green"
+    assert result["status"] == "complete"
+
+
+def test_invalid_factor_value_is_rejected():
+    with pytest.raises(TypeError):
+        calculate_risk(heavy_rain="unknown")

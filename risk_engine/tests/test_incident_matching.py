@@ -92,3 +92,36 @@ def test_negative_matching_radius_is_rejected(segments):
             segments,
             max_distance_m=-1,
         )
+
+
+def test_invalid_coordinates_are_rejected():
+    with pytest.raises(ValueError):
+        distance_to_segment_m(float("nan"), 75.715, {
+            "start": [75.720, 12.880],
+            "end": [75.710, 12.880],
+        })
+
+
+def test_invalid_segment_coordinates_are_rejected():
+    with pytest.raises(ValueError):
+        distance_to_segment_m(12.880, 75.715, {
+            "start": [float("inf"), 12.880],
+            "end": [75.710, 12.880],
+        })
+
+
+def test_non_finite_matching_radius_is_rejected(segments):
+    with pytest.raises(ValueError):
+        match_incidents_to_segments(
+            [], segments, max_distance_m=float("nan")
+        )
+
+
+def test_duplicate_segment_ids_are_rejected():
+    duplicate_segments = [
+        {"segment_id": 1},
+        {"segment_id": 1},
+    ]
+
+    with pytest.raises(ValueError):
+        match_incidents_to_segments([], duplicate_segments)

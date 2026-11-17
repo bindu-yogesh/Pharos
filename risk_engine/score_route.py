@@ -1,4 +1,4 @@
-
+﻿
 import json
 from pathlib import Path
 from risk_engine.incident_data import load_incidents
@@ -43,13 +43,27 @@ def score_route_segments(district=None, observation_date=None):
             observation_date,
         )
 
-    heavy_rain = is_heavy_rain(rainfall_observation) is True
+    heavy_rain = is_heavy_rain(rainfall_observation)
 
     segments = load_route_segments()
     incidents = load_incidents()
 
+    landslide_incidents = [
+        incident for incident in incidents
+        if incident["type"] == "landslide"
+    ]
+
+    landslide_location_coverage_complete = (
+        bool(landslide_incidents)
+        and all(
+            incident["latitude"] is not None
+            and incident["longitude"] is not None
+            for incident in landslide_incidents
+        )
+    )
+
     incident_matches = match_incidents_to_segments(
-        incidents,
+        landslide_incidents,
         segments,
         max_distance_m=500,
     )
@@ -63,12 +77,19 @@ def score_route_segments(district=None, observation_date=None):
         is_steep = abs(slope) >= STEEP_SLOPE_THRESHOLD
 
         incident_ids = incident_matches[segment["segment_id"]]
-        has_landslide_history = len(incident_ids) > 0
+        has_landslide_history = (
+            True if incident_ids
+            else False if landslide_location_coverage_complete
+            else None
+        )
 
         risk = calculate_risk(
             steep_slope=is_steep,
             heavy_rain=heavy_rain,
             landslide_history=has_landslide_history,
+            recent_hazard_report=None,
+            heavy_traffic=None,
+            low_visibility=None,
         )
 
         results.append({
@@ -77,6 +98,9 @@ def score_route_segments(district=None, observation_date=None):
             "length_m": segment["length_m"],
             "slope_percent": slope,
             "risk_score": risk["score"],
+            "known_risk_score": risk["known_score"],
+            "risk_status": risk["status"],
+            "missing_factors": risk["missing_factors"],
             "risk_level": risk["level"],
             "reasons": risk["reasons"],
             "rainfall_mm": (
