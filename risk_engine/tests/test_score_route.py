@@ -1,4 +1,3 @@
-
 from risk_engine.score_route import score_route_segments
 
 
@@ -225,3 +224,83 @@ def test_invalid_route_durations_are_rejected():
     for duration in (float("nan"), float("inf"), float("-inf"), -1, True):
         with pytest.raises(ValueError):
             score_route_segments(route_duration_s=duration)
+def test_reverse_direction_uses_reversed_segment_order_for_weather_eta(monkeypatch):
+    from datetime import datetime, timedelta, timezone
+    import risk_engine.score_route as route
+
+    segments = [
+        {
+            "segment_id": 1,
+            "length_m": 1000,
+            "slope_percent": 0,
+            "start": [75.70, 12.87],
+            "end": [75.71, 12.88],
+        },
+        {
+            "segment_id": 2,
+            "length_m": 3000,
+            "slope_percent": 0,
+            "start": [75.71, 12.88],
+            "end": [75.74, 12.91],
+        },
+    ]
+
+    monkeypatch.setattr(route, "load_route_segments", lambda: segments)
+    monkeypatch.setattr(route, "load_incidents", lambda: [])
+    monkeypatch.setattr(
+        route, "match_incidents_to_segments",
+        lambda *args, **kwargs: {1: [], 2: []},
+    )
+
+    base_time = datetime(2026, 11, 17, 12, 0, tzinfo=timezone.utc)
+    captured = {}
+
+    def mock_weather(travel_segments, arrival_times):
+        captured["segment_ids"] = [
+            segment["segment_id"] for segment in travel_segments
+        ]
+        captured["arrival_times"] = arrival_times
+        return [
+            {
+                "precipitation_mm": 22.0,
+                "visibility_m": 700.0,
+                "heavy_rain": True,
+                "low_visibility": True,
+                "forecast_time": "forecast-for-segment-2",
+                "source": "mock-weather",
+            },
+            {
+                "precipitation_mm": 11.0,
+                "visibility_m": 900.0,
+                "heavy_rain": False,
+                "low_visibility": False,
+                "forecast_time": "forecast-for-segment-1",
+                "source": "mock-weather",
+            },
+        ]
+
+    monkeypatch.setattr(route, "fetch_weather_for_segments", mock_weather)
+    monkeypatch.setattr(
+        route, "fetch_traffic_for_segment", lambda *args: None
+    )
+    monkeypatch.setattr(
+        route, "fetch_recent_hazard_matches", lambda *args: {}
+    )
+
+    results = route.score_route_segments(
+        include_live_data=True,
+        route_duration_s=400,
+        reverse=True,
+        now=base_time,
+    )
+
+    assert captured["segment_ids"] == [2, 1]
+    assert captured["arrival_times"][0] == base_time
+    assert captured["arrival_times"][1] == base_time + timedelta(seconds=300)
+
+    # Results remain in dataset order, but weather follows reverse travel order.
+    assert [item["segment_id"] for item in results] == [1, 2]
+    assert results[0]["rainfall_mm"] == 11.0
+    assert results[0]["weather_observation_date"] == "forecast-for-segment-1"
+    assert results[1]["rainfall_mm"] == 22.0
+    assert results[1]["weather_observation_date"] == "forecast-for-segment-2"

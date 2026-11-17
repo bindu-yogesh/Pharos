@@ -29,6 +29,7 @@ def score_route_segments(
     *,
     include_live_data=False,
     route_duration_s=None,
+    reverse=False,
     now=None,
 ):
     """Score route segments using historical and optional live observations."""
@@ -62,10 +63,11 @@ def score_route_segments(
     base_time = now or datetime.now(timezone.utc)
     if base_time.tzinfo is None:
         base_time = base_time.replace(tzinfo=timezone.utc)
-    total_length = sum(float(item["length_m"]) for item in segments) or 1.0
+    travel_segments = list(reversed(segments)) if reverse else segments
+    total_length = sum(float(item["length_m"]) for item in travel_segments) or 1.0
     elapsed_distance = 0.0
     arrival_times = []
-    for segment in segments:
+    for segment in travel_segments:
         offset = (
             elapsed_distance / total_length * route_duration_s
             if route_duration_s is not None else 0
@@ -77,10 +79,10 @@ def score_route_segments(
     traffic_by_id = {}
     recent_by_id = None
     if include_live_data:
-        weather_values = fetch_weather_for_segments(segments, arrival_times)
+        weather_values = fetch_weather_for_segments(travel_segments, arrival_times)
         weather_by_id = {
             item["segment_id"]: value
-            for item, value in zip(segments, weather_values)
+            for item, value in zip(travel_segments, weather_values)
         }
         for segment in segments:
             start, end = segment["start"], segment["end"]

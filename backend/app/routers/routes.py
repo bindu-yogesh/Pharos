@@ -1,4 +1,4 @@
-﻿from math import asin, cos, isfinite, radians, sin, sqrt
+from math import asin, cos, isfinite, radians, sin, sqrt
 
 import httpx
 from fastapi import APIRouter, HTTPException
@@ -165,7 +165,7 @@ def match_route_to_segments(
 def assess_route(request: RouteRequest):
     route_segments = load_route_segments()
 
-    identify_corridor_direction(
+    direction = identify_corridor_direction(
         request.origin, request.destination, route_segments
     )
 
@@ -194,12 +194,32 @@ def assess_route(request: RouteRequest):
     except httpx.HTTPStatusError as error:
         raise HTTPException(status_code=502, detail="OSRM returned an unsuccessful response.") from error
 
-    if not isinstance(data, dict) or data.get("code") != "Ok" or not data.get("routes"):
+    if (
+        not isinstance(data, dict)
+        or data.get("code") != "Ok"
+        or not isinstance(data.get("routes"), list)
+        or not data["routes"]
+    ):
         raise HTTPException(status_code=502, detail="OSRM could not calculate this route.")
 
     osrm_route = data["routes"][0]
 
     try:
+        if not isinstance(osrm_route, dict):
+            raise ValueError("OSRM route must be an object")
+
+        for metric in ("distance", "duration"):
+            value = osrm_route.get(metric)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not isfinite(value)
+                or value < 0
+            ):
+                raise ValueError(
+                    f"OSRM route {metric} must be a non-negative finite number"
+                )
+
         geometry = osrm_route["geometry"]
         if not isinstance(geometry, dict) or geometry.get("type") != "LineString":
             raise ValueError("OSRM did not return a GeoJSON LineString")
@@ -218,6 +238,7 @@ def assess_route(request: RouteRequest):
             ),
             include_live_data=request.include_live_data,
             route_duration_s=osrm_route.get("duration"),
+            reverse=direction == "reverse",
         )
 
     except (ValueError, OSError, KeyError, TypeError) as error:

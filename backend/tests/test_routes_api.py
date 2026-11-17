@@ -229,3 +229,97 @@ def test_live_data_request_passes_duration_and_returns_segment_metadata(monkeypa
     assert segment["historical_incident_ids"] == ["H-1"]
     assert segment["recent_hazard_report_ids"] == ["R-1"]
     assert segment["data_sources"]["weather"] == "Open-Meteo"
+def test_reverse_route_passes_reverse_flag_to_risk_scorer(monkeypatch):
+    mock_osrm_success(monkeypatch)
+    original_scorer = route_api.score_route_segments
+    captured = {}
+
+    def tracked_scorer(**kwargs):
+        captured.update(kwargs)
+        return original_scorer(**kwargs)
+
+    monkeypatch.setattr(route_api, "score_route_segments", tracked_scorer)
+
+    response = client.post("/route", json=REVERSE_PAYLOAD)
+
+    assert response.status_code == 200
+    assert captured["reverse"] is True
+    assert response.json()["segments"][0]["segment_id"] == 28
+    assert response.json()["segments"][-1]["segment_id"] == 1
+
+
+def test_forward_route_passes_forward_flag_to_risk_scorer(monkeypatch):
+    mock_osrm_success(monkeypatch)
+    original_scorer = route_api.score_route_segments
+    captured = {}
+
+    def tracked_scorer(**kwargs):
+        captured.update(kwargs)
+        return original_scorer(**kwargs)
+
+    monkeypatch.setattr(route_api, "score_route_segments", tracked_scorer)
+
+    response = client.post("/route", json=FORWARD_PAYLOAD)
+
+    assert response.status_code == 200
+    assert captured["reverse"] is False
+@pytest.mark.parametrize(
+    "route_data",
+    [
+        {"duration": 100.0, "geometry": {"type": "LineString", "coordinates": [[75.721304, 12.879189], [75.542298, 12.831463]]}},
+        {"distance": 1000.0, "geometry": {"type": "LineString", "coordinates": [[75.721304, 12.879189], [75.542298, 12.831463]]}},
+        {"distance": -1.0, "duration": 100.0, "geometry": {"type": "LineString", "coordinates": [[75.721304, 12.879189], [75.542298, 12.831463]]}},
+        {"distance": 1000.0, "duration": -1.0, "geometry": {"type": "LineString", "coordinates": [[75.721304, 12.879189], [75.542298, 12.831463]]}},
+        {"distance": float("nan"), "duration": 100.0, "geometry": {"type": "LineString", "coordinates": [[75.721304, 12.879189], [75.542298, 12.831463]]}},
+        {"distance": 1000.0, "duration": float("inf"), "geometry": {"type": "LineString", "coordinates": [[75.721304, 12.879189], [75.542298, 12.831463]]}},
+        None,
+    ],
+)
+def test_malformed_osrm_route_is_rejected(monkeypatch, route_data):
+    class MalformedOSRMResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {"code": "Ok", "routes": [route_data]}
+
+    monkeypatch.setattr(
+        route_api.httpx, "get",
+        lambda *args, **kwargs: MalformedOSRMResponse(),
+    )
+
+    response = client.post("/route", json=FORWARD_PAYLOAD)
+
+    assert response.status_code == 502
+@pytest.mark.parametrize(
+    "geometry",
+    [
+        None,
+        {"type": "Point", "coordinates": [75.7, 12.8]},
+        {"type": "LineString", "coordinates": [[float("nan"), 12.8], [75.5, 12.9]]},
+        {"type": "LineString", "coordinates": [[10.0, 10.0], [11.0, 11.0]]},
+    ],
+)
+def test_invalid_or_unmatched_osrm_geometry_is_rejected(monkeypatch, geometry):
+    class InvalidGeometryResponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return {
+                "code": "Ok",
+                "routes": [{
+                    "distance": 1000.0,
+                    "duration": 100.0,
+                    "geometry": geometry,
+                }],
+            }
+
+    monkeypatch.setattr(
+        route_api.httpx, "get",
+        lambda *args, **kwargs: InvalidGeometryResponse(),
+    )
+
+    response = client.post("/route", json=FORWARD_PAYLOAD)
+
+    assert response.status_code == 502
