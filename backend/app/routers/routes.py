@@ -216,6 +216,8 @@ def assess_route(request: RouteRequest):
                 request.observation_date.isoformat()
                 if request.observation_date else None
             ),
+            include_live_data=request.include_live_data,
+            route_duration_s=osrm_route.get("duration"),
         )
 
     except (ValueError, OSError, KeyError, TypeError) as error:
@@ -252,6 +254,11 @@ def assess_route(request: RouteRequest):
                 reasons=scored["reasons"],
                 latitude=(start[1] + end[1]) / 2,
                 longitude=(start[0] + end[0]) / 2,
+                visibility_m=scored.get("visibility_m"),
+                traffic=scored.get("traffic"),
+                historical_incident_ids=scored.get("historical_incident_ids") or [],
+                recent_hazard_report_ids=scored.get("recent_hazard_report_ids") or [],
+                data_sources=scored.get("data_sources") or {},
             )
         )
 
@@ -263,13 +270,15 @@ def assess_route(request: RouteRequest):
         duration_s=osrm_route.get("duration"),
         district=request.district,
         rainfall_mm=next(
-            (item["rainfall_mm"] for item in scored_segments
-             if item["rainfall_mm"] is not None),
+            (score_lookup[segment_id]["rainfall_mm"] for segment_id in matched_ids
+             if score_lookup.get(segment_id)
+             and score_lookup[segment_id]["rainfall_mm"] is not None),
             None,
         ),
         weather_observation_date=next(
-            (item["weather_observation_date"] for item in scored_segments
-             if item["weather_observation_date"] is not None),
+            (score_lookup[segment_id]["weather_observation_date"] for segment_id in matched_ids
+             if score_lookup.get(segment_id)
+             and score_lookup[segment_id]["weather_observation_date"] is not None),
             None,
         ),
         segments=risk_segments,

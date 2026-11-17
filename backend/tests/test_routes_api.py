@@ -176,3 +176,56 @@ def test_missing_weather_observation_returns_null_date_and_rainfall(monkeypatch)
     assert body["rainfall_mm"] is None
     assert body["weather_observation_date"] is None
 
+
+def test_live_data_request_passes_duration_and_returns_segment_metadata(monkeypatch):
+    mock_osrm_success(monkeypatch)
+    original_scorer = route_api.score_route_segments
+    captured = {}
+
+    def mocked_scorer(**kwargs):
+        captured.update(kwargs)
+        results = original_scorer(
+            district=kwargs["district"],
+            observation_date=kwargs["observation_date"],
+            include_live_data=False,
+            route_duration_s=kwargs["route_duration_s"],
+        )
+        first = results[0]
+        first.update({
+            "visibility_m": 850.0,
+            "traffic": {
+                "heavy_traffic": True,
+                "source": "TomTom Traffic",
+            },
+            "historical_incident_ids": ["H-1"],
+            "recent_hazard_report_ids": ["R-1"],
+            "data_sources": {
+                "weather": "Open-Meteo",
+                "traffic": "TomTom Traffic",
+                "community_reports": "postgis",
+            },
+        })
+        return results
+
+    monkeypatch.setattr(
+        route_api, "score_route_segments", mocked_scorer
+    )
+
+    response = client.post(
+        "/route",
+        json={**FORWARD_PAYLOAD, "include_live_data": True},
+    )
+
+    assert response.status_code == 200
+    assert captured["include_live_data"] is True
+    assert captured["route_duration_s"] == 1233.0
+
+    segment = next(
+        item for item in response.json()["segments"]
+        if item["segment_id"] == 1
+    )
+    assert segment["visibility_m"] == 850.0
+    assert segment["traffic"]["heavy_traffic"] is True
+    assert segment["historical_incident_ids"] == ["H-1"]
+    assert segment["recent_hazard_report_ids"] == ["R-1"]
+    assert segment["data_sources"]["weather"] == "Open-Meteo"

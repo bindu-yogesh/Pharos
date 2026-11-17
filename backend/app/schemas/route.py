@@ -14,6 +14,7 @@ class RouteRequest(BaseModel):
     destination: Coordinate
     district: str | None = Field(default=None, min_length=1)
     observation_date: date | None = None
+    include_live_data: bool = False
 
     @model_validator(mode="after")
     def validate_weather_parameters(self):
@@ -34,6 +35,11 @@ class RiskSegmentResponse(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     latitude: float | None = None
     longitude: float | None = None
+    visibility_m: float | None = None
+    traffic: dict | None = None
+    historical_incident_ids: list[str] = Field(default_factory=list)
+    recent_hazard_report_ids: list[str] = Field(default_factory=list)
+    data_sources: dict = Field(default_factory=dict)
 
 
 class RouteResponse(BaseModel):
@@ -41,5 +47,5 @@ class RouteResponse(BaseModel):
     duration_s: float | None = None
     district: str | None = None
     rainfall_mm: float | None = None
-    weather_observation_date: date | None = None
+    weather_observation_date: str | None = None
     segments: list[RiskSegmentResponse] = Field(default_factory=list)
