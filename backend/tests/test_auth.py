@@ -1,4 +1,4 @@
-import pytest
+﻿import pytest
 
 from datetime import datetime, timedelta, timezone
 
@@ -422,7 +422,7 @@ def test_verify_password_returns_false_for_more_than_72_utf8_bytes():
 @pytest.mark.parametrize("name", ["   ", "\t", "\n"])
 def test_profile_update_schema_rejects_blank_name(name):
     from pydantic import ValidationError
-    from app.schemas.auth import ProfileUpdateRequest
+    from backend.app.schemas.auth import ProfileUpdateRequest
 
     with pytest.raises(ValidationError):
         ProfileUpdateRequest(name=name, preferred_language="en")
