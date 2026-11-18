@@ -2,7 +2,8 @@
 
 import httpx
 
-OSRM_BASE_URL = "https://router.project-osrm.org"
+from ..core.config import settings
+
 OSRM_TIMEOUT_SECONDS = 10.0
 
 
@@ -24,7 +25,7 @@ async def get_route(
         f"{origin[0]},{origin[1]};"
         f"{destination[0]},{destination[1]}"
     )
-    url = f"{OSRM_BASE_URL}/route/v1/driving/{coordinates}"
+    url = f"{settings.osrm_base_url}/route/v1/driving/{coordinates}"
 
     params = {
     "overview": "full",
@@ -48,7 +49,16 @@ async def get_route(
     except ValueError as exc:
         raise OSRMError("OSRM returned an invalid response.") from exc
 
-    if data.get("code") != "Ok" or not data.get("routes"):
+    if not isinstance(data, dict):
+        raise OSRMError("OSRM returned an invalid response.")
+
+    routes = data.get("routes")
+    if (
+        data.get("code") != "Ok"
+        or not isinstance(routes, list)
+        or not routes
+        or not all(isinstance(route, dict) for route in routes)
+    ):
         raise OSRMError("No valid route was found between these locations.")
 
     return data

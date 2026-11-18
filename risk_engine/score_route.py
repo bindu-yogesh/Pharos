@@ -43,7 +43,11 @@ def score_route_segments(district=None, observation_date=None):
             observation_date,
         )
 
-    heavy_rain = is_heavy_rain(rainfall_observation) is True
+    heavy_rain = (
+        is_heavy_rain(rainfall_observation)
+        if rainfall_observation is not None
+        else None
+    )
 
     segments = load_route_segments()
     incidents = load_incidents()
@@ -76,6 +80,8 @@ def score_route_segments(district=None, observation_date=None):
             "segment_id": segment["segment_id"],
             "length_m": segment["length_m"],
             "slope_percent": slope,
+            "risk_assessment": risk["risk_assessment"],
+            "risk_data_gaps": risk["risk_data_gaps"],
             "risk_score": risk["score"],
             "risk_level": risk["level"],
             "reasons": risk["reasons"],

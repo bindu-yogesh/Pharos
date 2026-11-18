@@ -30,6 +30,7 @@ PHAROS_TABLES = {
     "incidents_history",
     "trips",
     "device_tokens",
+    "notification_outbox",
 }
 
 

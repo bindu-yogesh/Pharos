@@ -136,3 +136,50 @@ def test_road_segment_model_accepts_test_geometry(db_session):
     db_session.flush()
 
     assert segment.id is not None
+
+
+def add_unlocated_incident(db: Session) -> None:
+    incident = IncidentHistory(
+        external_id=f"unlocated-risk-test-{datetime.utcnow().timestamp()}",
+        incident_date=date.today(),
+        type="landslide",
+        location_name="Unlocated historical corridor incident",
+        geom=None,
+        location_confidence="unknown",
+        source="automated test",
+    )
+    db.add(incident)
+    db.flush()
+
+
+def add_corridor_segment(db: Session) -> None:
+    segment = RoadSegment(
+        segment_no=987653,
+        geom="SRID=4326;LINESTRING(75.0 12.0, 75.01 12.0)",
+        length_m=1000.0,
+        elevation_start_m=100.0,
+        elevation_end_m=102.0,
+        slope_percent=0.2,
+    )
+    db.add(segment)
+    db.flush()
+
+
+def test_unlocated_incidents_only_affect_corridor(db_session):
+    add_unlocated_incident(db_session)
+
+    # This route is outside the stored corridor geometry.
+    result = assess(db_session)
+
+    assert result["risk_flags"]["landslide_history"] is False
+
+
+def test_unlocated_incidents_make_corridor_history_unknown(db_session):
+    add_unlocated_incident(db_session)
+    add_corridor_segment(db_session)
+
+    result = assess(db_session)
+
+    assert result["risk_flags"]["landslide_history"] is None
+    assert result["risk_assessment"] == "incomplete"
+    assert "landslide_history" in result["risk_data_gaps"]

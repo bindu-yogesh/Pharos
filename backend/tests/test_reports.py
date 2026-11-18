@@ -1068,3 +1068,36 @@ def test_suspicious_helper_flags_repeated_rejections(
     report = db_session.get(Report, report_ids[0])
     assert report.user_id == author.id
     assert is_suspicious_report(db_session, report) is True
+
+def test_cast_vote_reraises_unrelated_integrity_error():
+    from datetime import datetime, timedelta, timezone
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+
+    from backend.app.routers.reports import cast_vote
+
+    report = SimpleNamespace(
+        id=1,
+        user_id=10,
+        status="active",
+        expires_at=datetime.now(timezone.utc).replace(tzinfo=None)
+        + timedelta(hours=1),
+    )
+    current_user = SimpleNamespace(id=20)
+
+    db = MagicMock()
+    db.execute.side_effect = [
+        SimpleNamespace(scalar_one_or_none=lambda: report),
+        SimpleNamespace(scalar_one_or_none=lambda: None),
+    ]
+    db.flush.side_effect = IntegrityError(
+        "INSERT", {}, Exception("unrelated database failure")
+    )
+
+    with pytest.raises(IntegrityError):
+        cast_vote(1, "confirm", db, current_user)
+
+    db.rollback.assert_called_once()

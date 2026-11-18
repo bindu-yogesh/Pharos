@@ -1,3 +1,4 @@
+import pytest
 
 from datetime import datetime, timedelta, timezone
 
@@ -322,3 +323,106 @@ def test_driver_gets_403_on_admin_protected_http_route(client, db_session):
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Admin access required"
+
+
+def test_register_handles_email_unique_violation_race(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.orm import Session
+
+    original_error = SimpleNamespace(
+        sqlstate="23505",
+        diag=SimpleNamespace(constraint_name="ix_users_email"),
+    )
+
+    def simulate_concurrent_email_insert(self):
+        raise IntegrityError("INSERT users", {}, original_error)
+
+    monkeypatch.setattr(Session, "commit", simulate_concurrent_email_insert)
+
+    response = client.post(
+        "/auth/register",
+        json={
+            "name": "Concurrent Driver",
+            "email": "race@example.com",
+            "password": "TestPassword123!",
+            "preferred_language": "en",
+        },
+    )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "Email is already registered"
+
+def test_register_reraises_unrelated_integrity_error(client, monkeypatch):
+    from types import SimpleNamespace
+
+    from sqlalchemy.exc import IntegrityError
+    from sqlalchemy.orm import Session
+
+    original_error = SimpleNamespace(
+        sqlstate="23505",
+        diag=SimpleNamespace(constraint_name="some_other_constraint"),
+    )
+
+    def simulate_other_integrity_error(self):
+        raise IntegrityError("INSERT users", {}, original_error)
+
+    monkeypatch.setattr(Session, "commit", simulate_other_integrity_error)
+
+    with pytest.raises(IntegrityError):
+        client.post(
+            "/auth/register",
+            json={
+                "name": "Another Driver",
+                "email": "other-race@example.com",
+                "password": "TestPassword123!",
+                "preferred_language": "en",
+            },
+        )
+
+@pytest.mark.parametrize("password", ["A" * 73, chr(0x1F600) * 19])
+def test_register_rejects_password_over_bcrypt_limit(client, password):
+    response = client.post(
+        "/auth/register",
+        json={
+            "name": "Long Password User",
+            "email": "long-password@example.com",
+            "password": password,
+            "preferred_language": "en",
+        },
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.parametrize("password", ["A" * 73, chr(0x1F600) * 19])
+def test_login_rejects_password_over_bcrypt_limit(client, password):
+    response = client.post(
+        "/auth/login",
+        json={
+            "email": "long-password@example.com",
+            "password": password,
+        },
+    )
+    assert response.status_code == 422
+
+
+def test_hash_password_rejects_more_than_72_utf8_bytes():
+    from backend.app.security.passwords import hash_password
+
+    with pytest.raises(ValueError, match="72 UTF-8 bytes"):
+        hash_password("A" * 73)
+
+
+def test_verify_password_returns_false_for_more_than_72_utf8_bytes():
+    from backend.app.security.passwords import verify_password
+
+    assert verify_password("A" * 73, "invalid-hash") is False
+
+@pytest.mark.parametrize("name", ["   ", "\t", "\n"])
+def test_profile_update_schema_rejects_blank_name(name):
+    from pydantic import ValidationError
+    from app.schemas.auth import ProfileUpdateRequest
+
+    with pytest.raises(ValidationError):
+        ProfileUpdateRequest(name=name, preferred_language="en")

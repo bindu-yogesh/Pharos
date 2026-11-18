@@ -90,8 +90,15 @@ def create_segments(
     target_length_m: float = 1000,
 ) -> list[dict[str, Any]]:
     """Group consecutive OSRM edges into approximately 1 km segments."""
-    if target_length_m <= 0:
-        raise ValueError("target_length_m must be greater than zero")
+    if (
+        isinstance(target_length_m, bool)
+        or not isinstance(target_length_m, (int, float))
+        or not math.isfinite(target_length_m)
+        or target_length_m <= 0
+    ):
+        raise ValueError(
+            "target_length_m must be a finite number greater than zero"
+        )
 
     if len(coordinates) < 2:
         raise ValueError("At least two route coordinates are required")
@@ -101,8 +108,33 @@ def create_segments(
             "Edge-distance count must equal coordinate count minus one"
         )
 
-    if any(distance < 0 for distance in edge_distances):
-        raise ValueError("Edge distances cannot be negative")
+    for index, point in enumerate(coordinates):
+        if (
+            not isinstance(point, (list, tuple))
+            or len(point) != 2
+            or any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                for value in point
+            )
+            or not -180 <= point[0] <= 180
+            or not -90 <= point[1] <= 90
+        ):
+            raise ValueError(
+                f"Invalid route coordinate at index {index}"
+            )
+
+    for index, distance in enumerate(edge_distances):
+        if (
+            isinstance(distance, bool)
+            or not isinstance(distance, (int, float))
+            or not math.isfinite(distance)
+            or distance < 0
+        ):
+            raise ValueError(
+                f"Invalid edge distance at index {index}"
+            )
 
     segments: list[dict[str, Any]] = []
     segment_coordinates = [coordinates[0]]
@@ -168,6 +200,18 @@ def process_osrm_route(route: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(
             "OSRM route is missing geometry, distance, duration, or annotations"
         ) from exc
+
+    for field in ("distance", "duration"):
+        value = route[field]
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value <= 0
+        ):
+            raise ValueError(
+                f"OSRM route {field} must be a finite positive number"
+            )
 
     if len(legs) != 1:
         raise ValueError(

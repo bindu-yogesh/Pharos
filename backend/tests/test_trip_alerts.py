@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 
 from unittest.mock import patch
 
@@ -6,9 +7,13 @@ from sqlalchemy import func, select
 
 from backend.app.models.device import DeviceToken
 from backend.app.models.report import Report
+from backend.app.models.notification_outbox import NotificationOutbox
 from backend.app.models.trip import Trip
 from backend.app.models.user import User
-from backend.app.services.trip_alert_service import check_trip_hazards
+from backend.app.services.trip_alert_service import (
+    check_trip_hazards,
+    deliver_pending_notifications,
+)
 
 
 def get_auth_headers(client, email):
@@ -235,96 +240,117 @@ def test_location_update_rejects_invalid_coordinates(client):
 
 
 def test_nearby_hazard_sends_alert_to_all_devices(db_session, client):
-    headers = get_auth_headers(
-        client, "hazard-driver@example.com"
-    )
+    get_auth_headers(client, "hazard-driver@example.com")
     user = get_user(db_session, "hazard-driver@example.com")
-
     trip = create_trip(db_session, user.id)
-
     report = create_report(db_session, user.id)
 
     db_session.add_all([
-        DeviceToken(
-            user_id=user.id,
-            fcm_token="hazard-device-one",
-        ),
-        DeviceToken(
-            user_id=user.id,
-            fcm_token="hazard-device-two",
-        ),
+        DeviceToken(user_id=user.id, fcm_token="hazard-device-one"),
+        DeviceToken(user_id=user.id, fcm_token="hazard-device-two"),
     ])
     db_session.flush()
 
-    with patch(
-        "backend.app.services.trip_alert_service.send",
-        return_value=True,
-    ) as mock_send:
-        result = check_trip_hazards(db_session, trip)
+    result = check_trip_hazards(db_session, trip)
 
     assert result == 1
-    assert mock_send.call_count == 2
     assert report.id in trip.alerted_report_ids
+
+    queued = db_session.scalars(
+        select(NotificationOutbox).where(
+            NotificationOutbox.trip_id == trip.id
+        )
+    ).all()
+    assert len(queued) == 2
+    assert all(item.status == "pending" for item in queued)
+
+    with patch(
+        "backend.app.integrations.fcm.send",
+        return_value=True,
+    ) as mock_send:
+        delivered = deliver_pending_notifications(db_session)
+
+    assert delivered == 2
+    assert mock_send.call_count == 2
 
 
 def test_hazard_alert_is_not_sent_twice(db_session, client):
-    headers = get_auth_headers(
-        client, "dedup-driver@example.com"
-    )
+    get_auth_headers(client, "dedup-driver@example.com")
     user = get_user(db_session, "dedup-driver@example.com")
-
     trip = create_trip(db_session, user.id)
     report = create_report(db_session, user.id)
 
     db_session.add(
-        DeviceToken(
-            user_id=user.id,
-            fcm_token="dedup-device",
-        )
+        DeviceToken(user_id=user.id, fcm_token="dedup-device")
     )
     db_session.flush()
 
-    with patch(
-        "backend.app.services.trip_alert_service.send",
-        return_value=True,
-    ) as mock_send:
-        first = check_trip_hazards(db_session, trip)
-        second = check_trip_hazards(db_session, trip)
+    first = check_trip_hazards(db_session, trip)
+    second = check_trip_hazards(db_session, trip)
 
     assert first == 1
     assert second == 0
-    assert mock_send.call_count == 1
     assert report.id in trip.alerted_report_ids
+
+    queued = db_session.scalars(
+        select(NotificationOutbox).where(
+            NotificationOutbox.trip_id == trip.id
+        )
+    ).all()
+    assert len(queued) == 1
+
+    with patch(
+        "backend.app.integrations.fcm.send",
+        return_value=True,
+    ) as mock_send:
+        delivered = deliver_pending_notifications(db_session)
+
+    assert delivered == 1
+    mock_send.assert_called_once()
 
 
 def test_failed_hazard_delivery_can_be_retried(db_session, client):
-    get_auth_headers(
-        client, "retry-driver@example.com"
-    )
+    get_auth_headers(client, "retry-driver@example.com")
     user = get_user(db_session, "retry-driver@example.com")
-
     trip = create_trip(db_session, user.id)
     report = create_report(db_session, user.id)
 
     db_session.add(
-        DeviceToken(
-            user_id=user.id,
-            fcm_token="retry-device",
-        )
+        DeviceToken(user_id=user.id, fcm_token="retry-device")
     )
     db_session.flush()
 
+    first = check_trip_hazards(db_session, trip)
+    second = check_trip_hazards(db_session, trip)
+
+    assert first == 1
+    assert second == 0
+    assert report.id in trip.alerted_report_ids
+
     with patch(
-        "backend.app.services.trip_alert_service.send",
+        "backend.app.integrations.fcm.send",
         side_effect=[False, True],
     ) as mock_send:
-        first = check_trip_hazards(db_session, trip)
-        second = check_trip_hazards(db_session, trip)
+        first_delivery = deliver_pending_notifications(db_session)
 
-    assert first == 0
-    assert second == 1
+        item = db_session.scalar(
+            select(NotificationOutbox).where(
+                NotificationOutbox.trip_id == trip.id
+            )
+        )
+        assert item.status == "pending"
+        assert item.attempts == 1
+
+        item.next_attempt_at = datetime.utcnow() - timedelta(seconds=1)
+        db_session.flush()
+
+        second_delivery = deliver_pending_notifications(db_session)
+
+    assert first_delivery == 0
+    assert second_delivery == 1
+    assert item.status == "sent"
+    assert item.attempts == 1
     assert mock_send.call_count == 2
-    assert report.id in trip.alerted_report_ids
 
 
 def test_low_severity_hazard_does_not_trigger_alert(db_session, client):
@@ -351,3 +377,28 @@ def test_low_severity_hazard_does_not_trigger_alert(db_session, client):
 
     assert result == 0
     mock_send.assert_not_called()
+
+
+def test_upcoming_route_segments_validate_finite_coordinates(db_session, client):
+    get_auth_headers(
+        client, "route-segment-driver@example.com"
+    )
+    user = get_user(
+        db_session, "route-segment-driver@example.com"
+    )
+    trip = create_trip(db_session, user.id)
+
+    result = check_trip_hazards(
+        db_session,
+        trip,
+        upcoming_segments=[
+            {
+                "coordinates": [
+                    [75.0, 12.0],
+                    [75.01, 12.01],
+                ]
+            }
+        ],
+    )
+
+    assert result == 0
