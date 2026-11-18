@@ -1,6 +1,9 @@
 
 import pytest
 from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
+
+from sqlalchemy.exc import IntegrityError
 
 from backend.app.integrations.osrm import OSRMError
 from geoalchemy2 import WKTElement
@@ -316,3 +319,145 @@ def test_risk_weather_failure_keeps_assessment_incomplete(
     assert body["risk_level"] is None
     assert "heavy_rain" in body["risk_data_gaps"]
     assert "low_visibility" in body["risk_data_gaps"]
+
+
+def test_weather_forecasts_respect_concurrency_limit():
+    import asyncio
+
+    from backend.app.routers.routes import _forecast_route_segments
+
+    async def run_test():
+        active = 0
+        maximum_active = 0
+
+        async def fake_forecast(segment, arrival_time, semaphore):
+            nonlocal active, maximum_active
+
+            async with semaphore:
+                active += 1
+                maximum_active = max(maximum_active, active)
+                await asyncio.sleep(0.01)
+                active -= 1
+
+            return {"precipitation_mm": 0, "visibility_m": 5000}
+
+        segments = [
+            {
+                "segment_id": i,
+                "length_m": 100,
+                "start": [75.0, 12.0],
+                "end": [75.01, 12.01],
+            }
+            for i in range(1, 11)
+        ]
+
+        with patch(
+            "backend.app.routers.routes._forecast_for_segment",
+            side_effect=fake_forecast,
+        ):
+            results = await _forecast_route_segments(
+                segments, 100, 1000
+            )
+
+        assert len(results) == 10
+        assert maximum_active == 5
+
+    asyncio.run(run_test())
+
+
+@pytest.mark.parametrize(
+    ("duration", "distance"),
+    [
+        (float("nan"), 1000),
+        (float("inf"), 1000),
+        (-1, 1000),
+        (100, float("nan")),
+        (100, float("inf")),
+        (100, 0),
+        (100, -1),
+        (True, 1000),
+    ],
+)
+def test_eta_rejects_invalid_route_inputs(duration, distance):
+    import asyncio
+    from backend.app.routers.routes import _forecast_route_segments
+
+    segments = [{
+        "segment_id": 1,
+        "length_m": 1000,
+        "start": [75.0, 12.0],
+        "end": [75.01, 12.01],
+    }]
+
+    with pytest.raises(ValueError):
+        asyncio.run(
+            _forecast_route_segments(segments, duration, distance)
+        )
+
+
+@pytest.mark.parametrize(
+    "length",
+    [0, -1, float("nan"), float("inf"), True],
+)
+def test_eta_rejects_invalid_segment_lengths(length):
+    import asyncio
+    from backend.app.routers.routes import _forecast_route_segments
+
+    segments = [{
+        "segment_id": 1,
+        "length_m": length,
+        "start": [75.0, 12.0],
+        "end": [75.01, 12.01],
+    }]
+
+    with pytest.raises(ValueError):
+        asyncio.run(
+            _forecast_route_segments(segments, 100, 1000)
+        )
+
+def test_route_empty_collection_returns_502(client):
+    with patch(
+        "backend.app.routers.routes.get_route",
+        new_callable=AsyncMock,
+        return_value={"code": "Ok", "routes": []},
+    ):
+        response = client.post(
+            "/route",
+            json={
+                "origin": {"latitude": 12.0, "longitude": 75.0},
+                "destination": {"latitude": 12.1, "longitude": 75.1},
+            },
+        )
+
+    assert response.status_code == 502
+
+
+def test_trip_start_handles_concurrent_active_trip_conflict(client):
+    headers = get_auth_headers(client, "phase6-race@example.com")
+
+    original_error = SimpleNamespace(
+        diag=SimpleNamespace(
+            constraint_name="uq_trips_one_active_per_user"
+        )
+    )
+    integrity_error = IntegrityError(
+        "INSERT INTO trips",
+        {},
+        original_error,
+    )
+
+    with patch(
+        "backend.app.routers.trips.Session.commit",
+        side_effect=integrity_error,
+    ), patch(
+        "backend.app.routers.trips.Session.rollback"
+    ) as rollback:
+        response = client.post(
+            "/trips/start",
+            headers=headers,
+            json={"route_json": {"distance_m": 1000}},
+        )
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "You already have an active trip."
+    rollback.assert_called_once()

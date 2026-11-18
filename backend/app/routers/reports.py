@@ -350,12 +350,20 @@ def cast_vote(
 
         db.commit()
 
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(
-            status_code=409,
-            detail="You have already voted on this report",
-        )
+
+        original_error = getattr(exc, "orig", None)
+        diagnostic = getattr(original_error, "diag", None)
+        constraint_name = getattr(diagnostic, "constraint_name", None)
+
+        if constraint_name == "uq_report_votes_report_user":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="You have already voted on this report",
+            ) from exc
+
+        raise
 
     return {
         "message": "Vote recorded successfully",

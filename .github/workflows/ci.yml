@@ -1,4 +1,4 @@
-name: Pharos CI
+﻿name: Pharos CI
 
 on:
   push:

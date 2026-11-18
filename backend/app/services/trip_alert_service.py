@@ -1,4 +1,6 @@
-from datetime import datetime
+import hashlib
+import math
+from datetime import datetime, timedelta
 
 from geoalchemy2 import Geography
 from sqlalchemy import cast, func, or_, select
@@ -8,6 +10,7 @@ from ..integrations.fcm import send
 from ..models.device import DeviceToken
 from ..models.report import Report
 from ..models.trip import Trip
+from ..models.notification_outbox import NotificationOutbox
 
 
 
@@ -140,7 +143,7 @@ def check_trip_hazards(
     if not tokens:
         return 0
 
-    successful_alerts = 0
+    queued_reports = 0
 
     for report in new_reports:
         title = "Hazard ahead"
@@ -150,22 +153,27 @@ def check_trip_hazards(
             "Please proceed carefully."
         )
 
-        sent = False
-
         for token in tokens:
-            try:
-                if send(token, title, body):
-                    sent = True
-            except Exception:
-                continue
+            db.add(
+                NotificationOutbox(
+                    user_id=trip.user_id,
+                    trip_id=trip.id,
+                    dedupe_key=(
+                        f"hazard:{trip.id}:{report.id}:"
+                        f"{hashlib.sha256(token.encode()).hexdigest()}"
+                    ),
+                    fcm_token=token,
+                    title=title,
+                    body=body,
+                )
+            )
 
-        if sent:
-            already_alerted.add(report.id)
-            successful_alerts += 1
+        already_alerted.add(report.id)
+        queued_reports += 1
 
     trip.alerted_report_ids = sorted(already_alerted)
-
-    return successful_alerts
+    db.flush()
+    return queued_reports
 
 
 
@@ -220,17 +228,67 @@ def check_trip_risk_escalation(
         "Please proceed carefully."
     )
 
-    sent = False
-
     for token in tokens:
+        db.add(
+            NotificationOutbox(
+                user_id=trip.user_id,
+                trip_id=trip.id,
+                dedupe_key=(
+                    f"risk:{trip.id}:{previous_level}:{current_level}:"
+                    f"{datetime.utcnow().isoformat()}:"
+                    f"{hashlib.sha256(token.encode()).hexdigest()}"
+                ),
+                fcm_token=token,
+                title=title,
+                body=body,
+            )
+        )
+
+    # The outbox records the notification durably in this transaction.
+    trip.last_alerted_level = current_level
+    db.flush()
+    return True
+
+
+def deliver_pending_notifications(
+    db: Session,
+    limit: int = 100,
+) -> int:
+    """Deliver committed outbox rows without holding trip-row locks."""
+    from ..integrations.fcm import send
+
+    now = datetime.utcnow()
+    pending = db.scalars(
+        select(NotificationOutbox)
+        .where(
+            NotificationOutbox.status == "pending",
+            NotificationOutbox.next_attempt_at <= now,
+        )
+        .order_by(NotificationOutbox.id)
+        .limit(limit)
+        .with_for_update(skip_locked=True)
+    ).all()
+
+    delivered = 0
+
+    for item in pending:
         try:
-            if send(token, title, body):
-                sent = True
+            success = send(item.fcm_token, item.title, item.body)
         except Exception:
-            continue
+            success = False
 
-    if sent:
-        trip.last_alerted_level = current_level
-        return True
+        if success:
+            item.status = "sent"
+            item.sent_at = datetime.utcnow()
+            item.last_error = None
+            delivered += 1
+        else:
+            item.attempts += 1
+            delay_seconds = min(3600, 30 * (2 ** min(item.attempts - 1, 7)))
+            item.next_attempt_at = (
+                datetime.utcnow() + timedelta(seconds=delay_seconds)
+            )
+            item.last_error = "FCM delivery failed"
 
-    return False
+    db.commit()
+    return delivered
