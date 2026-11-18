@@ -1,308 +1,567 @@
-from math import asin, cos, isfinite, radians, sin, sqrt
 
-import httpx
-from fastapi import APIRouter, HTTPException
+"""Route calculation and location-based risk endpoints."""
 
-from risk_engine.score_route import load_route_segments, score_route_segments
-from ..schemas.route import RouteRequest, RouteResponse, RiskSegmentResponse
+import asyncio
+import json
+import math
+from datetime import datetime, timedelta, timezone
+from typing import Annotated
 
-router = APIRouter(prefix="/routes", tags=["Routing and Risk"])
+from fastapi import APIRouter, Depends, HTTPException
+from geoalchemy2 import Geography
+from sqlalchemy import cast, func, select
+from sqlalchemy.orm import Session
 
-OSRM_URL = "https://router.project-osrm.org/route/v1/driving"
-OSRM_TIMEOUT_SECONDS = 15
-CORRIDOR_TOLERANCE_METERS = 1500
-SEGMENT_MATCH_TOLERANCE_METERS = 250
-ROUTE_SAMPLE_SPACING_METERS = 75
-EARTH_RADIUS_METERS = 6_371_000
-
-
-def haversine_distance_m(point_a, point_b):
-    lon1, lat1 = point_a
-    lon2, lat2 = point_b
-    lat1, lat2 = radians(lat1), radians(lat2)
-    delta_lat = lat2 - lat1
-    delta_lon = radians(lon2 - lon1)
-    value = (
-        sin(delta_lat / 2) ** 2
-        + cos(lat1) * cos(lat2) * sin(delta_lon / 2) ** 2
-    )
-    return 2 * EARTH_RADIUS_METERS * asin(sqrt(min(1.0, value)))
-
-
-def identify_corridor_direction(origin, destination, segments):
-    if not segments:
-        raise HTTPException(status_code=500, detail="Shiradi Ghat route dataset is empty.")
-
-    start, end = segments[0]["start"], segments[-1]["end"]
-    origin_point = [origin.longitude, origin.latitude]
-    destination_point = [destination.longitude, destination.latitude]
-
-    if (
-        haversine_distance_m(origin_point, start) <= CORRIDOR_TOLERANCE_METERS
-        and haversine_distance_m(destination_point, end) <= CORRIDOR_TOLERANCE_METERS
-    ):
-        return "forward"
-
-    if (
-        haversine_distance_m(origin_point, end) <= CORRIDOR_TOLERANCE_METERS
-        and haversine_distance_m(destination_point, start) <= CORRIDOR_TOLERANCE_METERS
-    ):
-        return "reverse"
-
-    raise HTTPException(
-        status_code=422,
-        detail="Risk assessment is currently supported only for the configured Shiradi Ghat corridor.",
-    )
+from ..database import get_db
+from ..integrations.osrm import OSRMError, get_route
+from ..integrations.weather import (
+    WeatherForecastError,
+    get_weather_forecast,
+)
+from ..models.segment import RoadSegment
+from ..schemas.route import RouteRequest, RouteCollectionResponse
+from ..services.risk_service import assess_segment_risk
+from ..services.route_service import (
+    assess_route_segments,
+    calculate_overall_route_risk,
+    classify_weather_risk,
+    process_osrm_route,
+)
 
 
-def _point_to_segment_distance_m(point, start, end):
-    lon, lat = point
-    scale_x = EARTH_RADIUS_METERS * cos(radians(lat)) * radians(1)
-    scale_y = EARTH_RADIUS_METERS * radians(1)
-
-    ax = (start[0] - lon) * scale_x
-    ay = (start[1] - lat) * scale_y
-    bx = (end[0] - lon) * scale_x
-    by = (end[1] - lat) * scale_y
-
-    dx, dy = bx - ax, by - ay
-    length_squared = dx * dx + dy * dy
-
-    if length_squared == 0:
-        return sqrt(ax * ax + ay * ay)
-
-    projection = max(
-        0.0,
-        min(1.0, -(ax * dx + ay * dy) / length_squared),
-    )
-    nearest_x = ax + projection * dx
-    nearest_y = ay + projection * dy
-    return sqrt(nearest_x * nearest_x + nearest_y * nearest_y)
+router = APIRouter(tags=["routes"])
 
 
-def _sample_route_geometry(coordinates, spacing_m=ROUTE_SAMPLE_SPACING_METERS):
-    if not isinstance(coordinates, list) or len(coordinates) < 2:
-        raise ValueError("OSRM route geometry must contain at least two coordinates")
+# Location-based risk configuration.
+RISK_MATCH_RADIUS_M = 100.0
+RISK_LOOKAHEAD_RADIUS_M = 1000.0
+MAX_FORWARD_SEGMENTS = 10
+MAX_HEADING_DIFFERENCE = 45.0
+MAX_FORWARD_POSITION_ANGLE = 90.0
+SLOPE_THRESHOLD_PERCENT = 6.0
 
-    for coordinate in coordinates:
-        if (
-            not isinstance(coordinate, (list, tuple))
-            or len(coordinate) < 2
-            or not all(
-                isinstance(value, (int, float))
-                and not isinstance(value, bool)
-                and isfinite(value)
-                for value in coordinate[:2]
-            )
-        ):
-            raise ValueError("OSRM route geometry contains an invalid coordinate")
-
-        lon, lat = coordinate[:2]
-        if not -180 <= lon <= 180 or not -90 <= lat <= 90:
-            raise ValueError("OSRM route geometry contains an out-of-range coordinate")
-
-    samples = []
-
-    for start, end in zip(coordinates, coordinates[1:]):
-        start = [float(start[0]), float(start[1])]
-        end = [float(end[0]), float(end[1])]
-        distance = haversine_distance_m(start, end)
-        steps = max(1, int(distance / spacing_m) + 1)
-
-        for index in range(steps):
-            fraction = index / steps
-            samples.append([
-                start[0] + (end[0] - start[0]) * fraction,
-                start[1] + (end[1] - start[1]) * fraction,
-            ])
-
-    samples.append([float(coordinates[-1][0]), float(coordinates[-1][1])])
-    return samples
+RISK_COLORS = {
+    "Green": "green",
+    "Yellow": "yellow",
+    "Orange": "orange",
+    "Red": "red",
+}
 
 
-def match_route_to_segments(
-    route_coordinates,
-    segments,
-    max_distance_m=SEGMENT_MATCH_TOLERANCE_METERS,
-):
-    if (
-        not isinstance(max_distance_m, (int, float))
-        or isinstance(max_distance_m, bool)
-        or not isfinite(max_distance_m)
-        or max_distance_m <= 0
-    ):
-        raise ValueError("max_distance_m must be a positive finite number")
+def calculate_bearing_difference(
+    segment_bearing: float,
+    heading: float,
+) -> float:
+    """Return the smallest angular difference for a two-way road."""
+    forward = abs((segment_bearing - heading + 180) % 360 - 180)
 
-    samples = _sample_route_geometry(route_coordinates)
+    reverse_bearing = (segment_bearing + 180) % 360
+    reverse = abs((reverse_bearing - heading + 180) % 360 - 180)
 
-    if not segments:
-        return []
-
-    ordered_ids = []
-
-    for point in samples:
-        nearest_id = None
-        nearest_distance = float("inf")
-
-        for segment in segments:
-            distance = _point_to_segment_distance_m(
-                point, segment["start"], segment["end"]
-            )
-            if distance < nearest_distance:
-                nearest_distance = distance
-                nearest_id = segment["segment_id"]
-
-        if (
-            nearest_distance <= max_distance_m
-            and (not ordered_ids or ordered_ids[-1] != nearest_id)
-        ):
-            ordered_ids.append(nearest_id)
-
-    return list(dict.fromkeys(ordered_ids))
+    return min(forward, reverse)
 
 
-@router.post("/assess", response_model=RouteResponse)
-def assess_route(request: RouteRequest):
-    route_segments = load_route_segments()
+def calculate_bearing(
+    start_lon: float,
+    start_lat: float,
+    end_lon: float,
+    end_lat: float,
+) -> float:
+    """Calculate the initial bearing from one coordinate to another."""
+    lat1 = math.radians(start_lat)
+    lat2 = math.radians(end_lat)
+    delta_lon = math.radians(end_lon - start_lon)
 
-    direction = identify_corridor_direction(
-        request.origin, request.destination, route_segments
+    y = math.sin(delta_lon) * math.cos(lat2)
+
+    x = (
+        math.cos(lat1) * math.sin(lat2)
+        - math.sin(lat1)
+        * math.cos(lat2)
+        * math.cos(delta_lon)
     )
 
-    coordinates = (
-        f"{request.origin.longitude},{request.origin.latitude};"
-        f"{request.destination.longitude},{request.destination.latitude}"
-    )
+    return (math.degrees(math.atan2(y, x)) + 360) % 360
+
+
+async def _forecast_for_segment(
+    segment: dict,
+    arrival_time: datetime,
+    semaphore: asyncio.Semaphore,
+) -> dict | None:
+    """Retrieve forecast data at the midpoint of a route segment."""
+    start_lon, start_lat = segment["start"]
+    end_lon, end_lat = segment["end"]
 
     try:
-        response = httpx.get(
-            f"{OSRM_URL}/{coordinates}",
-            params={
-                "overview": "full",
-                "geometries": "geojson",
-                "steps": "false",
-            },
-            timeout=OSRM_TIMEOUT_SECONDS,
+        async with semaphore:
+            return await get_weather_forecast(
+                latitude=(start_lat + end_lat) / 2,
+                longitude=(start_lon + end_lon) / 2,
+                arrival_time=arrival_time,
+            )
+    except WeatherForecastError:
+        # Missing weather must not be interpreted as safe weather.
+        return None
+
+
+async def _forecast_route_segments(
+    segments: list[dict],
+    route_duration_s: float,
+    route_distance_m: float,
+) -> dict[int, dict | None]:
+    """Estimate segment arrival times and fetch their forecasts."""
+    if not segments:
+        return {}
+
+    for name, value, allow_zero in (
+        ("route_duration_s", route_duration_s, True),
+        ("route_distance_m", route_distance_m, False),
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or (value < 0 if allow_zero else value <= 0)
+        ):
+            raise ValueError(f"Invalid {name}")
+
+    segment_lengths = []
+    for segment in segments:
+        length = segment.get("length_m")
+        if (
+            isinstance(length, bool)
+            or not isinstance(length, (int, float))
+            or not math.isfinite(length)
+            or length <= 0
+        ):
+            raise ValueError("Invalid route segment length")
+        segment_lengths.append(float(length))
+
+    total_segment_length = sum(segment_lengths)
+
+    if not math.isfinite(total_segment_length) or total_segment_length <= 0:
+        raise ValueError("Invalid total route segment length")
+
+    departure_time = datetime.now(timezone.utc)
+    semaphore = asyncio.Semaphore(5)
+    cumulative_distance = 0.0
+    tasks = []
+
+    for segment in segments:
+        cumulative_distance += float(segment["length_m"])
+
+        elapsed_seconds = (
+            route_duration_s
+            * cumulative_distance
+            / total_segment_length
         )
-        response.raise_for_status()
-        data = response.json()
 
-    except httpx.TimeoutException as error:
-        raise HTTPException(status_code=504, detail="OSRM routing service timed out.") from error
-    except httpx.RequestError as error:
-        raise HTTPException(status_code=503, detail="Unable to connect to OSRM.") from error
-    except httpx.HTTPStatusError as error:
-        raise HTTPException(status_code=502, detail="OSRM returned an unsuccessful response.") from error
-    except ValueError as error:
-        raise HTTPException(status_code=502, detail="OSRM returned invalid JSON.") from error
+        arrival_time = departure_time + timedelta(
+            seconds=elapsed_seconds
+        )
 
-    if (
-        not isinstance(data, dict)
-        or data.get("code") != "Ok"
-        or not isinstance(data.get("routes"), list)
-        or not data["routes"]
-    ):
-        raise HTTPException(status_code=502, detail="OSRM could not calculate this route.")
+        tasks.append(
+            _forecast_for_segment(segment, arrival_time, semaphore)
+        )
 
-    osrm_route = data["routes"][0]
+    forecasts = await asyncio.gather(
+        *tasks,
+        return_exceptions=True,
+    )
+
+    result: dict[int, dict | None] = {}
+
+    for segment, forecast in zip(segments, forecasts):
+        if isinstance(forecast, Exception):
+            forecast = None
+
+        result[segment["segment_id"]] = forecast
+
+    return result
+
+
+@router.post(
+    "/route",
+    response_model=RouteCollectionResponse,
+)
+async def calculate_route(
+    request: RouteRequest,
+    db: Annotated[Session, Depends(get_db)],
+):
+    """Calculate alternative routes and assess their available risk data."""
+
+    origin = (
+        request.origin.longitude,
+        request.origin.latitude,
+    )
+
+    destination = (
+        request.destination.longitude,
+        request.destination.latitude,
+    )
 
     try:
-        if not isinstance(osrm_route, dict):
-            raise ValueError("OSRM route must be an object")
+        # Step 1: Request alternative routes from OSRM.
+        data = await get_route(
+            origin,
+            destination,
+            alternatives=True,
+        )
 
-        for metric in ("distance", "duration"):
-            value = osrm_route.get(metric)
-            if (
-                not isinstance(value, (int, float))
-                or isinstance(value, bool)
-                or not isfinite(value)
-                or value < 0
-            ):
-                raise ValueError(
-                    f"OSRM route {metric} must be a non-negative finite number"
+        route_collection = data.get("routes")
+
+        if not isinstance(route_collection, list) or not route_collection:
+            raise OSRMError("No valid route was found between these locations.")
+
+        routes = []
+
+        for route in route_collection:
+
+            # Step 2: Normalize the OSRM route.
+            processed = process_osrm_route(route)
+
+            segments = processed["segments"]
+
+            # Step 3: Get weather forecasts at estimated arrival times.
+            weather_by_segment = await _forecast_route_segments(
+                segments,
+                processed["duration_s"],
+                processed["distance_m"],
+            )
+
+            # Step 4: Assess individual route segments.
+            assessed_segments = assess_route_segments(
+                db,
+                segments,
+                weather_by_segment=weather_by_segment,
+            )
+
+            # Step 5: Remove duplicate risk-data-gap messages.
+            for segment in assessed_segments:
+                segment["risk_data_gaps"] = sorted(
+                    set(segment.get("risk_data_gaps", []))
                 )
 
-        geometry = osrm_route["geometry"]
-        if not isinstance(geometry, dict) or geometry.get("type") != "LineString":
-            raise ValueError("OSRM did not return a GeoJSON LineString")
+            # Step 6: Calculate distance-weighted overall risk.
+            overall_risk = calculate_overall_route_risk(
+                assessed_segments
+            )
 
-        matched_ids = match_route_to_segments(
-            geometry.get("coordinates"), route_segments
-        )
-        if not matched_ids:
-            raise ValueError("OSRM route does not match the configured Shiradi Ghat segments")
+            # Step 7: Collect all segment-level data gaps.
+            route_gaps = sorted({
+                gap
+                for segment in assessed_segments
+                for gap in segment.get("risk_data_gaps", [])
+            })
 
-        scored_segments = score_route_segments(
-            district=request.district,
-            observation_date=(
-                request.observation_date.isoformat()
-                if request.observation_date else None
-            ),
-            include_live_data=request.include_live_data,
-            route_duration_s=osrm_route.get("duration"),
-            reverse=direction == "reverse",
-        )
+            # Step 8: Construct the final route response.
+            processed["segments"] = assessed_segments
+            processed["risk_data_gaps"] = route_gaps
 
-    except (ValueError, OSError, KeyError, TypeError) as error:
+            processed.update(overall_risk)
+
+            routes.append(processed)
+
+    except OSRMError as exc:
         raise HTTPException(
             status_code=502,
-            detail=f"Unable to match or score route: {error}",
-        ) from error
+            detail=str(exc),
+        ) from exc
 
-    score_lookup = {
-        item["segment_id"]: item for item in scored_segments
-    }
-    route_lookup = {
-        item["segment_id"]: item for item in route_segments
-    }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Routing service returned an invalid response: {exc}",
+        ) from exc
 
-    risk_segments = []
+    return {"routes": routes}
 
-    for segment_id in matched_ids:
-        scored = score_lookup.get(segment_id)
-        if scored is None:
-            continue
 
-        route_segment = route_lookup[segment_id]
-        start, end = route_segment["start"], route_segment["end"]
+@router.get("/risk")
+async def get_location_risk(
+    lat: float,
+    lon: float,
+    heading: float | None = None,
+    db: Annotated[Session, Depends(get_db)] = None,
+):
+    """Assess multiple stored road segments around and ahead of the user."""
 
-        risk_segments.append(
-            RiskSegmentResponse(
-                segment_id=segment_id,
-                risk_score=scored["risk_score"],
-                risk_level=scored["risk_level"],
-                known_risk_score=scored["known_risk_score"],
-                risk_status=scored["risk_status"],
-                missing_factors=scored["missing_factors"],
-                reasons=scored["reasons"],
-                latitude=(start[1] + end[1]) / 2,
-                longitude=(start[0] + end[0]) / 2,
-                visibility_m=scored.get("visibility_m"),
-                traffic=scored.get("traffic"),
-                historical_incident_ids=scored.get("historical_incident_ids") or [],
-                recent_hazard_report_ids=scored.get("recent_hazard_report_ids") or [],
-                data_sources=scored.get("data_sources") or {},
-            )
+    # Step 1: Validate geographical coordinates.
+    if not -90 <= lat <= 90 or not -180 <= lon <= 180:
+        raise HTTPException(
+            status_code=422,
+            detail="Latitude or longitude is outside its valid range.",
         )
 
-    if not risk_segments:
-        raise HTTPException(status_code=502, detail="No scored segments matched the OSRM route.")
+    if heading is not None and not 0 <= heading < 360:
+        raise HTTPException(
+            status_code=422,
+            detail="Heading must be between 0 inclusive and 360 exclusive.",
+        )
 
-    return RouteResponse(
-        distance_m=osrm_route.get("distance"),
-        duration_s=osrm_route.get("duration"),
-        district=request.district,
-        rainfall_mm=next(
-            (score_lookup[segment_id]["rainfall_mm"] for segment_id in matched_ids
-             if score_lookup.get(segment_id)
-             and score_lookup[segment_id]["rainfall_mm"] is not None),
-            None,
-        ),
-        weather_observation_date=next(
-            (score_lookup[segment_id]["weather_observation_date"] for segment_id in matched_ids
-             if score_lookup.get(segment_id)
-             and score_lookup[segment_id]["weather_observation_date"] is not None),
-            None,
-        ),
-        segments=risk_segments,
+    # Step 2: Create the user's current location point.
+    point = func.ST_SetSRID(
+        func.ST_MakePoint(lon, lat),
+        4326,
     )
+
+    point_geography = cast(
+        point,
+        Geography(srid=4326),
+    )
+
+    road_geography = cast(
+        RoadSegment.geom,
+        Geography(srid=4326),
+    )
+
+    distance = func.ST_Distance(
+        road_geography,
+        point_geography,
+    )
+
+    # Find the midpoint of each road for forward-position filtering.
+    midpoint = func.ST_LineInterpolatePoint(
+        RoadSegment.geom,
+        0.5,
+    )
+
+    # Step 3: Retrieve nearby road segments.
+    matches = db.execute(
+        select(
+            RoadSegment,
+            distance.label("distance_m"),
+            func.ST_X(
+                func.ST_StartPoint(RoadSegment.geom)
+            ).label("start_lon"),
+            func.ST_Y(
+                func.ST_StartPoint(RoadSegment.geom)
+            ).label("start_lat"),
+            func.ST_X(
+                func.ST_EndPoint(RoadSegment.geom)
+            ).label("end_lon"),
+            func.ST_Y(
+                func.ST_EndPoint(RoadSegment.geom)
+            ).label("end_lat"),
+            func.ST_X(midpoint).label("mid_lon"),
+            func.ST_Y(midpoint).label("mid_lat"),
+            func.ST_AsGeoJSON(
+                RoadSegment.geom
+            ).label("geometry"),
+        )
+        .where(
+            func.ST_DWithin(
+                road_geography,
+                point_geography,
+                RISK_LOOKAHEAD_RADIUS_M,
+            )
+        )
+        .order_by(distance)
+        .limit(100)
+    ).all()
+
+    # Step 4: Filter candidate roads using heading.
+    candidates = []
+
+    for match in matches:
+        (
+            road,
+            distance_m,
+            start_lon,
+            start_lat,
+            end_lon,
+            end_lat,
+            mid_lon,
+            mid_lat,
+            geometry_json,
+        ) = match
+
+        segment_bearing = calculate_bearing(
+            start_lon,
+            start_lat,
+            end_lon,
+            end_lat,
+        )
+
+        heading_difference = (
+            calculate_bearing_difference(
+                segment_bearing,
+                heading,
+            )
+            if heading is not None
+            else None
+        )
+
+        # Reject roads that do not approximately align
+        # with the user's direction.
+        if (
+            heading_difference is not None
+            and heading_difference > MAX_HEADING_DIFFERENCE
+        ):
+            continue
+
+        # Calculate the direction from the user to the road midpoint.
+        position_bearing = calculate_bearing(
+            lon,
+            lat,
+            mid_lon,
+            mid_lat,
+        )
+
+        position_difference = (
+            abs(
+                (position_bearing - heading + 180) % 360 - 180
+            )
+            if heading is not None
+            else None
+        )
+
+        # Allow roads immediately underneath the user.
+        # Filter out roads substantially behind the user.
+        if (
+            heading is not None
+            and float(distance_m) > RISK_MATCH_RADIUS_M
+            and position_difference > MAX_FORWARD_POSITION_ANGLE
+        ):
+            continue
+
+        try:
+            geometry = (
+                json.loads(geometry_json)
+                if geometry_json
+                else None
+            )
+        except (TypeError, ValueError):
+            geometry = None
+
+        candidates.append({
+            "road": road,
+            "distance_m": float(distance_m),
+            "start": [start_lon, start_lat],
+            "end": [end_lon, end_lat],
+            "bearing": segment_bearing,
+            "heading_difference": heading_difference,
+            "position_difference": position_difference,
+            "geometry": geometry,
+        })
+
+    # Step 5: Keep the closest suitable road segments.
+    candidates.sort(
+        key=lambda item: item["distance_m"]
+    )
+
+    candidates = candidates[:MAX_FORWARD_SEGMENTS]
+
+    # Step 6: Return a clear incomplete response when no road is found.
+    if not candidates:
+        return {
+            "latitude": lat,
+            "longitude": lon,
+            "heading": heading,
+            "risk_assessment": "incomplete",
+            "risk_score": None,
+            "risk_level": None,
+            "risk_flags": None,
+            "reasons": [],
+            "segments": [],
+            "risk_data_gaps": [
+                "No stored road segment found within the look-ahead radius.",
+                "Weather, traffic and visibility inputs are unavailable.",
+            ],
+        }
+
+    # Step 7: Fetch current weather forecasts for selected segments.
+    forecast_time = datetime.now(timezone.utc)
+
+    semaphore = asyncio.Semaphore(5)
+    weather_forecasts = await asyncio.gather(
+        *[
+            _forecast_for_segment(candidate, forecast_time, semaphore)
+            for candidate in candidates
+        ],
+        return_exceptions=True,
+    )
+
+    # Step 8: Assess each selected road segment.
+    assessed_segments = []
+
+    for candidate, weather in zip(candidates, weather_forecasts):
+        if isinstance(weather, Exception):
+            weather = None
+
+        heavy_rain, low_visibility = classify_weather_risk(weather)
+
+        road = candidate["road"]
+
+        risk = assess_segment_risk(
+            db,
+            start=candidate["start"],
+            end=candidate["end"],
+            slope_percent=road.slope_percent,
+            slope_threshold_percent=SLOPE_THRESHOLD_PERCENT,
+            heavy_rain=heavy_rain,
+            heavy_traffic=None,
+            low_visibility=low_visibility,
+        )
+
+        assessed_segments.append({
+            "road_segment_id": road.id,
+            "distance_from_user_m": round(
+                candidate["distance_m"],
+                2,
+            ),
+            "geometry": candidate["geometry"],
+            "segment_bearing": round(
+                candidate["bearing"],
+                2,
+            ),
+            "heading_difference": (
+                round(candidate["heading_difference"], 2)
+                if candidate["heading_difference"] is not None
+                else None
+            ),
+            "weather_forecast": weather,
+            "risk_assessment": risk["risk_assessment"],
+            "risk_score": risk["score"],
+            "risk_level": risk["level"],
+            "risk_color": RISK_COLORS.get(risk["level"]),
+            "risk_flags": risk["risk_flags"],
+            "reasons": risk["reasons"],
+            "risk_data_gaps": risk["risk_data_gaps"],
+        })
+
+    # Step 9: Preserve the original top-level response fields.
+    nearest = assessed_segments[0]
+
+    all_gaps = sorted({
+        gap
+        for segment in assessed_segments
+        for gap in segment["risk_data_gaps"]
+    })
+
+    overall_assessment = (
+        "complete"
+        if all(
+            segment["risk_assessment"] == "complete"
+            for segment in assessed_segments
+        )
+        else "incomplete"
+    )
+
+    return {
+        "latitude": lat,
+        "longitude": lon,
+        "heading": heading,
+        "road_segment_id": nearest["road_segment_id"],
+        "road_match_distance_m": nearest["distance_from_user_m"],
+        "segment_bearing": nearest["segment_bearing"],
+        "heading_difference": nearest["heading_difference"],
+        "risk_assessment": overall_assessment,
+        "risk_score": nearest["risk_score"],
+        "risk_level": nearest["risk_level"],
+        "risk_flags": nearest["risk_flags"],
+        "reasons": nearest["reasons"],
+        "segments": assessed_segments,
+        "risk_data_gaps": all_gaps,
+    }

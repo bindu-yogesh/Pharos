@@ -1,11 +1,11 @@
-
-name: Pharos CI
+﻿name: Pharos CI
 
 on:
   push:
     branches:
       - main
       - feature/backend
+      - feature/phase-3-auth
   pull_request:
     branches:
       - main
@@ -31,7 +31,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql+psycopg://pharos_user:pharos_password@localhost:5432/pharos
-      JWT_SECRET: ci-test-secret
+      JWT_SECRET: "pharos-ci-only-secret-for-github-actions-2026"
 
     steps:
       - name: Checkout repository
@@ -47,8 +47,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      - name: Create test database
+        run: |
+          PGPASSWORD=pharos_password psql \
+            -h localhost \
+            -p 5432 \
+            -U pharos_user \
+            -d pharos \
+            -c "CREATE DATABASE pharos_test;"
+
       - name: Apply database migrations
         run: alembic -c backend/alembic.ini upgrade head
 
+      - name: Apply test database migrations
+        env:
+          DATABASE_URL: postgresql+psycopg://pharos_user:pharos_password@localhost:5432/pharos_test
+        run: alembic -c backend/alembic.ini upgrade head
+
       - name: Run tests
+        env:
+          DATABASE_URL: postgresql+psycopg://pharos_user:pharos_password@localhost:5432/pharos_test
         run: pytest

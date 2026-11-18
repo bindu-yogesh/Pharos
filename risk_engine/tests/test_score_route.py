@@ -1,4 +1,4 @@
-from risk_engine.score_route import score_route_segments
+﻿from risk_engine.score_route import score_route_segments
 
 
 def test_all_route_segments_are_scored():

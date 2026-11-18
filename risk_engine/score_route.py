@@ -1,4 +1,4 @@
-import json
+﻿import json
 from datetime import datetime, timedelta, timezone
 from math import isfinite
 from pathlib import Path
