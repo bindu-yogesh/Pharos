@@ -13,7 +13,7 @@ from sqlalchemy import cast, func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..integrations.osrm import OSRMError, get_route
+from ..integrations.osrm import OSRMError, OSRMTimeoutError, get_route
 from ..integrations.weather import (
     WeatherForecastError,
     get_weather_forecast,
@@ -27,6 +27,8 @@ from ..services.route_service import (
     classify_weather_risk,
     process_osrm_route,
 )
+from .risk_routes import identify_corridor_direction
+from risk_engine.score_route import load_route_segments
 
 
 router = APIRouter(tags=["routes"])
@@ -191,6 +193,12 @@ async def calculate_route(
 ):
     """Calculate alternative routes and assess their available risk data."""
 
+    identify_corridor_direction(
+        request.origin,
+        request.destination,
+        load_route_segments(),
+    )
+
     origin = (
         request.origin.longitude,
         request.origin.latitude,
@@ -262,6 +270,12 @@ async def calculate_route(
             processed.update(overall_risk)
 
             routes.append(processed)
+
+    except OSRMTimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail=str(exc),
+        ) from exc
 
     except OSRMError as exc:
         raise HTTPException(

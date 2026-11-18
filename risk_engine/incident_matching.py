@@ -1,5 +1,5 @@
 
-from math import cos, radians, sqrt
+from math import cos, isfinite, radians, sqrt
 
 
 EARTH_RADIUS_M = 6_371_000
@@ -7,8 +7,40 @@ EARTH_RADIUS_M = 6_371_000
 
 def distance_to_segment_m(latitude, longitude, segment):
     """Approximate distance from a coordinate to a segment in metres."""
-    start_lon, start_lat = segment["start"]
-    end_lon, end_lat = segment["end"]
+    if (
+        not isinstance(latitude, (int, float))
+        or isinstance(latitude, bool)
+        or not isinstance(longitude, (int, float))
+        or isinstance(longitude, bool)
+        or not isfinite(latitude)
+        or not isfinite(longitude)
+        or not -90 <= latitude <= 90
+        or not -180 <= longitude <= 180
+    ):
+        raise ValueError("Incident coordinates must be finite and in valid ranges")
+
+    try:
+        start_lon, start_lat = segment["start"]
+        end_lon, end_lat = segment["end"]
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("Segment must contain valid start and end coordinates") from error
+
+    coordinates = (start_lon, start_lat, end_lon, end_lat)
+    if not all(
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and isfinite(value)
+        for value in coordinates
+    ):
+        raise ValueError("Segment coordinates must be finite numbers")
+
+    if not (
+        -180 <= start_lon <= 180
+        and -180 <= end_lon <= 180
+        and -90 <= start_lat <= 90
+        and -90 <= end_lat <= 90
+    ):
+        raise ValueError("Segment coordinates are outside valid ranges")
 
     reference_lat = radians(latitude)
     metres_per_degree_lat = 111_320
@@ -45,10 +77,19 @@ def match_incidents_to_segments(
     max_distance_m=500,
 ):
     """Return segment IDs with at least one nearby geolocated incident."""
-    if max_distance_m < 0:
-        raise ValueError("max_distance_m cannot be negative")
+    if (
+        not isinstance(max_distance_m, (int, float))
+        or isinstance(max_distance_m, bool)
+        or not isfinite(max_distance_m)
+        or max_distance_m < 0
+    ):
+        raise ValueError("max_distance_m must be a finite non-negative number")
 
-    matched = {segment["segment_id"]: [] for segment in segments}
+    segment_ids = [segment["segment_id"] for segment in segments]
+    if len(segment_ids) != len(set(segment_ids)):
+        raise ValueError("Segment IDs must be unique")
+
+    matched = {segment_id: [] for segment_id in segment_ids}
 
     for incident in incidents:
         latitude = incident.get("latitude")

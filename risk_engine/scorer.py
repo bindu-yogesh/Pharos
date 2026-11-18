@@ -1,5 +1,5 @@
-from pathlib import Path
-import math
+﻿from pathlib import Path
+from collections.abc import Mapping
 import yaml
 
 
@@ -7,55 +7,108 @@ RULES_FILE = Path(__file__).parent / "rules.yaml"
 
 
 def load_rules():
-    with open(RULES_FILE, "r", encoding="utf-8") as file:
-        config = yaml.safe_load(file)
+    try:
+        with open(RULES_FILE, "r", encoding="utf-8") as file:
+            config = yaml.safe_load(file)
+    except yaml.YAMLError as error:
+        raise ValueError("Risk rules YAML is invalid") from error
 
-    if not isinstance(config, dict):
-        raise ValueError("Risk rules configuration must be a YAML mapping")
+    if not isinstance(config, Mapping):
+        raise ValueError("Risk rules configuration must be a mapping")
 
-    risk_rules = config.get("risk_rules")
-    risk_levels = config.get("risk_levels")
-    max_score = config.get("max_score")
+    required_config_keys = {"risk_rules", "risk_levels", "max_score"}
+    if set(config) != required_config_keys:
+        raise ValueError("Risk rules configuration has missing or unexpected keys")
 
-    if not isinstance(risk_rules, dict) or not risk_rules:
-        raise ValueError("risk_rules must be a non-empty mapping")
+    rules = config["risk_rules"]
+    levels = config["risk_levels"]
+    max_score = config["max_score"]
 
-    if not isinstance(risk_levels, dict) or not risk_levels:
-        raise ValueError("risk_levels must be a non-empty mapping")
+    required_factors = {
+        "heavy_rain",
+        "landslide_history",
+        "steep_slope",
+        "recent_hazard_report",
+        "heavy_traffic",
+        "low_visibility",
+    }
 
-    for name, rule in risk_rules.items():
-        if not isinstance(rule, dict):
-            raise ValueError(f"Risk rule '{name}' must be a mapping")
+    if not isinstance(rules, Mapping) or set(rules) != required_factors:
+        raise ValueError("Risk rules must define exactly the supported risk factors")
+
+    for factor, rule in rules.items():
+        if not isinstance(rule, Mapping):
+            raise ValueError(f"Rule '{factor}' must be a mapping")
 
         points = rule.get("points")
+        description = rule.get("description")
+
         if (
-            isinstance(points, bool)
-            or not isinstance(points, (int, float))
-            or not math.isfinite(points)
+            not isinstance(points, int)
+            or isinstance(points, bool)
             or points < 0
         ):
-            raise ValueError(
-                f"Risk rule '{name}' must have a finite, non-negative points value"
-            )
+            raise ValueError(f"Rule '{factor}' points must be a non-negative integer")
+
+        if not isinstance(description, str) or not description.strip():
+            raise ValueError(f"Rule '{factor}' needs a non-empty description")
 
     if (
-        isinstance(max_score, bool)
-        or not isinstance(max_score, (int, float))
-        or not math.isfinite(max_score)
+        not isinstance(max_score, int)
+        or isinstance(max_score, bool)
         or max_score <= 0
     ):
-        raise ValueError("max_score must be a finite positive number")
+        raise ValueError("max_score must be a positive integer")
 
-    return risk_rules, risk_levels, max_score
+    if not isinstance(levels, Mapping) or not levels:
+        raise ValueError("risk_levels must be a non-empty mapping")
+
+    validated_levels = []
+    for name, boundaries in levels.items():
+        if not isinstance(name, str) or not name.strip():
+            raise ValueError("Risk level names must be non-empty strings")
+
+        if not isinstance(boundaries, Mapping):
+            raise ValueError(f"Risk level '{name}' must be a mapping")
+
+        if set(boundaries) != {"min", "max"}:
+            raise ValueError(f"Risk level '{name}' must define min and max")
+
+        lower = boundaries["min"]
+        upper = boundaries["max"]
+
+        if any(
+            not isinstance(value, int) or isinstance(value, bool)
+            for value in (lower, upper)
+        ):
+            raise ValueError(f"Risk level '{name}' boundaries must be integers")
+
+        if lower < 0 or upper < lower or upper > max_score:
+            raise ValueError(f"Risk level '{name}' has invalid boundaries")
+
+        validated_levels.append((lower, upper, name))
+
+    validated_levels.sort()
+
+    expected_minimum = 0
+    for lower, upper, name in validated_levels:
+        if lower != expected_minimum:
+            raise ValueError("Risk level boundaries must be contiguous and non-overlapping")
+        expected_minimum = upper + 1
+
+    if expected_minimum != max_score + 1:
+        raise ValueError("Risk levels must cover the full range from 0 to max_score")
+
+    return rules, levels, max_score
 
 
 def calculate_risk(
-    heavy_rain=None,
-    landslide_history=None,
-    steep_slope=None,
-    recent_hazard_report=None,
-    heavy_traffic=None,
-    low_visibility=None,
+    heavy_rain=False,
+    landslide_history=False,
+    steep_slope=False,
+    recent_hazard_report=False,
+    heavy_traffic=False,
+    low_visibility=False,
 ):
     rules, risk_levels, max_score = load_rules()
 
@@ -68,61 +121,49 @@ def calculate_risk(
         "low_visibility": low_visibility,
     }
 
-    missing_inputs = [
-        name for name, value in conditions.items()
-        if value is None
-    ]
-
-    invalid_inputs = [
-        name for name, value in conditions.items()
-        if value is not None and not isinstance(value, bool)
-    ]
-
-    if invalid_inputs:
-        raise ValueError(
-            f"Risk flags must be booleans: {invalid_inputs}"
-        )
-
-    reasons = [
-        name.replace("_", " ").capitalize()
-        for name, value in conditions.items()
-        if value is True
-    ]
-
-    if missing_inputs:
-        return {
-            "risk_assessment": "incomplete",
-            "risk_data_gaps": missing_inputs,
-            "score": None,
-            "level": None,
-            "reasons": reasons,
-        }
-
     score = 0
+    reasons = []
+    missing_factors = []
+
     for rule_name, is_active in conditions.items():
+        if is_active is None:
+            missing_factors.append(rule_name)
+            continue
+
+        if not isinstance(is_active, bool):
+            raise TypeError(f"{rule_name} must be True, False, or None")
+
         if is_active:
             score += rules[rule_name]["points"]
+            reasons.append(rule_name.replace("_", " ").capitalize())
 
     score = min(score, max_score)
 
-    level = next(
-        (
-            name.capitalize()
-            for name, bounds in risk_levels.items()
-            if bounds["min"] <= score <= bounds["max"]
-        ),
-        None,
-    )
+    if missing_factors:
+        return {
+            "score": None,
+            "known_score": score,
+            "level": None,
+            "reasons": reasons,
+            "status": "incomplete",
+            "missing_factors": missing_factors,
+        }
+
+    level = None
+
+    for level_name, boundaries in risk_levels.items():
+        if boundaries["min"] <= score <= boundaries["max"]:
+            level = level_name.capitalize()
+            break
 
     if level is None:
-        raise ValueError(
-            f"No configured risk level covers score {score}"
-        )
+        raise ValueError(f"Risk score {score} does not fit any configured risk level")
 
     return {
-        "risk_assessment": "complete",
-        "risk_data_gaps": [],
         "score": score,
+        "known_score": score,
         "level": level,
         "reasons": reasons,
+        "status": "complete",
+        "missing_factors": [],
     }
