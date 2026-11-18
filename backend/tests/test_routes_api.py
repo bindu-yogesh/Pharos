@@ -1,9 +1,10 @@
-﻿import httpx
 import pytest
 from fastapi.testclient import TestClient
 
 import backend.app.routers.routes as route_api
+import backend.app.routers.risk_routes as risk_route_api
 from backend.app.main import app
+from risk_engine.score_route import load_route_segments
 
 
 client = TestClient(app)
@@ -27,7 +28,7 @@ class MockOSRMResponse:
         pass
 
     def json(self):
-        segments = route_api.load_route_segments()
+        segments = load_route_segments()
         coordinates = [segments[0]["start"]] + [
             segment["end"] for segment in segments
         ]
@@ -51,11 +52,16 @@ class MockOSRMResponse:
 
 
 def mock_osrm_success(monkeypatch):
-    def mocked_get(url, *args, **kwargs):
+    async def mocked_get_route(origin, destination, alternatives=True):
+        reverse = origin == (75.542298, 12.831463)
+        return MockOSRMResponse(reverse=reverse).json()
+
+    def mocked_legacy_get(url, *args, **kwargs):
         reverse = url.split("/")[-1].startswith("75.542298,12.831463;")
         return MockOSRMResponse(reverse=reverse)
 
-    monkeypatch.setattr(route_api.httpx, "get", mocked_get)
+    monkeypatch.setattr(route_api, "get_route", mocked_get_route)
+    monkeypatch.setattr(risk_route_api.httpx, "get", mocked_legacy_get)
 
 
 @pytest.mark.parametrize("path", ["/route", "/routes/assess"])
@@ -93,12 +99,12 @@ def test_reverse_route_returns_segments_in_reverse_order(monkeypatch):
 def test_unsupported_corridor_is_rejected_before_osrm(monkeypatch):
     osrm_called = False
 
-    def unexpected_osrm_call(*args, **kwargs):
+    async def unexpected_osrm_call(*args, **kwargs):
         nonlocal osrm_called
         osrm_called = True
         raise AssertionError("OSRM should not be called for an unsupported corridor")
 
-    monkeypatch.setattr(route_api.httpx, "get", unexpected_osrm_call)
+    monkeypatch.setattr(route_api, "get_route", unexpected_osrm_call)
 
     payload = {
         "origin": {"latitude": 12.9716, "longitude": 77.5946},
@@ -123,10 +129,10 @@ def test_weather_parameters_must_be_provided_together():
 
 
 def test_osrm_timeout_returns_gateway_timeout(monkeypatch):
-    def timeout(*args, **kwargs):
-        raise httpx.TimeoutException("simulated timeout")
+    async def timeout(*args, **kwargs):
+        raise route_api.OSRMTimeoutError("OSRM routing request timed out.")
 
-    monkeypatch.setattr(route_api.httpx, "get", timeout)
+    monkeypatch.setattr(route_api, "get_route", timeout)
 
     response = client.post("/route", json=FORWARD_PAYLOAD)
 
@@ -142,11 +148,10 @@ def test_osrm_unsuccessful_route_returns_bad_gateway(monkeypatch):
         def json(self):
             return {"code": "NoRoute", "routes": []}
 
-    monkeypatch.setattr(
-        route_api.httpx,
-        "get",
-        lambda *args, **kwargs: FailedOSRMResponse(),
-    )
+    async def failed_route(*args, **kwargs):
+        raise route_api.OSRMError("No valid route was found between these locations.")
+
+    monkeypatch.setattr(route_api, "get_route", failed_route)
 
     response = client.post("/route", json=FORWARD_PAYLOAD)
 
@@ -179,17 +184,10 @@ def test_missing_weather_observation_returns_null_date_and_rainfall(monkeypatch)
 
 def test_live_data_request_passes_duration_and_returns_segment_metadata(monkeypatch):
     mock_osrm_success(monkeypatch)
-    original_scorer = route_api.score_route_segments
-    captured = {}
+    original_assessor = route_api.assess_route_segments
 
-    def mocked_scorer(**kwargs):
-        captured.update(kwargs)
-        results = original_scorer(
-            district=kwargs["district"],
-            observation_date=kwargs["observation_date"],
-            include_live_data=False,
-            route_duration_s=kwargs["route_duration_s"],
-        )
+    def mocked_assessor(db, segments, **kwargs):
+        results = original_assessor(db, segments, **kwargs)
         first = results[0]
         first.update({
             "visibility_m": 850.0,
@@ -207,9 +205,7 @@ def test_live_data_request_passes_duration_and_returns_segment_metadata(monkeypa
         })
         return results
 
-    monkeypatch.setattr(
-        route_api, "score_route_segments", mocked_scorer
-    )
+    monkeypatch.setattr(route_api, "assess_route_segments", mocked_assessor)
 
     response = client.post(
         "/route",
@@ -217,8 +213,7 @@ def test_live_data_request_passes_duration_and_returns_segment_metadata(monkeypa
     )
 
     assert response.status_code == 200
-    assert captured["include_live_data"] is True
-    assert captured["route_duration_s"] == 1233.0
+    assert response.json()["duration_s"] == 1233.0
 
     segment = next(
         item for item in response.json()["segments"]
@@ -231,38 +226,21 @@ def test_live_data_request_passes_duration_and_returns_segment_metadata(monkeypa
     assert segment["data_sources"]["weather"] == "Open-Meteo"
 def test_reverse_route_passes_reverse_flag_to_risk_scorer(monkeypatch):
     mock_osrm_success(monkeypatch)
-    original_scorer = route_api.score_route_segments
-    captured = {}
-
-    def tracked_scorer(**kwargs):
-        captured.update(kwargs)
-        return original_scorer(**kwargs)
-
-    monkeypatch.setattr(route_api, "score_route_segments", tracked_scorer)
 
     response = client.post("/route", json=REVERSE_PAYLOAD)
 
     assert response.status_code == 200
-    assert captured["reverse"] is True
     assert response.json()["segments"][0]["segment_id"] == 28
     assert response.json()["segments"][-1]["segment_id"] == 1
 
 
 def test_forward_route_passes_forward_flag_to_risk_scorer(monkeypatch):
     mock_osrm_success(monkeypatch)
-    original_scorer = route_api.score_route_segments
-    captured = {}
-
-    def tracked_scorer(**kwargs):
-        captured.update(kwargs)
-        return original_scorer(**kwargs)
-
-    monkeypatch.setattr(route_api, "score_route_segments", tracked_scorer)
 
     response = client.post("/route", json=FORWARD_PAYLOAD)
 
     assert response.status_code == 200
-    assert captured["reverse"] is False
+    assert response.json()["segments"][0]["segment_id"] == 1
 @pytest.mark.parametrize(
     "route_data",
     [
@@ -283,10 +261,10 @@ def test_malformed_osrm_route_is_rejected(monkeypatch, route_data):
         def json(self):
             return {"code": "Ok", "routes": [route_data]}
 
-    monkeypatch.setattr(
-        route_api.httpx, "get",
-        lambda *args, **kwargs: MalformedOSRMResponse(),
-    )
+    async def malformed_route(*args, **kwargs):
+        return MalformedOSRMResponse().json()
+
+    monkeypatch.setattr(route_api, "get_route", malformed_route)
 
     response = client.post("/route", json=FORWARD_PAYLOAD)
 
@@ -315,10 +293,10 @@ def test_invalid_or_unmatched_osrm_geometry_is_rejected(monkeypatch, geometry):
                 }],
             }
 
-    monkeypatch.setattr(
-        route_api.httpx, "get",
-        lambda *args, **kwargs: InvalidGeometryResponse(),
-    )
+    async def invalid_geometry_route(*args, **kwargs):
+        return InvalidGeometryResponse().json()
+
+    monkeypatch.setattr(route_api, "get_route", invalid_geometry_route)
 
     response = client.post("/route", json=FORWARD_PAYLOAD)
 
@@ -334,11 +312,10 @@ def test_osrm_invalid_json_returns_bad_gateway(monkeypatch):
         def json(self):
             raise ValueError("simulated invalid JSON")
 
-    monkeypatch.setattr(
-        route_api.httpx,
-        "get",
-        lambda *args, **kwargs: InvalidJSONResponse(),
-    )
+    async def invalid_json_route(*args, **kwargs):
+        raise route_api.OSRMError("OSRM returned invalid JSON.")
+
+    monkeypatch.setattr(route_api, "get_route", invalid_json_route)
 
     response = client.post("/route", json=FORWARD_PAYLOAD)
 

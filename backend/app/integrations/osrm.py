@@ -11,6 +11,10 @@ class OSRMError(Exception):
     """Raised when the OSRM routing service fails."""
 
 
+class OSRMTimeoutError(OSRMError):
+    """Raised when the OSRM routing request times out."""
+
+
 async def get_route(
     origin: tuple[float, float],
     destination: tuple[float, float],
@@ -43,7 +47,7 @@ async def get_route(
             response.raise_for_status()
             data = response.json()
     except httpx.TimeoutException as exc:
-        raise OSRMError("OSRM routing request timed out.") from exc
+        raise OSRMTimeoutError("OSRM routing request timed out.") from exc
     except httpx.HTTPError as exc:
         raise OSRMError("OSRM routing service is unavailable.") from exc
     except ValueError as exc:
