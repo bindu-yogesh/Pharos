@@ -83,6 +83,11 @@ class RouteOptionSegmentResponse(BaseModel):
     road_match_distance_m: float | None = None
     slope_percent: float | None = None
     weather_forecast: dict | None = None
+    visibility_m: float | None = None
+    traffic: dict | None = None
+    historical_incident_ids: list[str] = Field(default_factory=list)
+    recent_hazard_report_ids: list[str] = Field(default_factory=list)
+    data_sources: dict = Field(default_factory=dict)
     score: float | None = Field(default=None, ge=0, le=100)
     level: RiskLevel | None = None
     color: Literal["green", "yellow", "orange", "red"] | None = None
