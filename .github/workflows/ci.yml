@@ -31,7 +31,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql+psycopg://pharos_user:pharos_password@localhost:5432/pharos
-      JWT_SECRET: ci-test-secret
+      JWT_SECRET: "pharos-ci-only-secret-for-github-actions-2026"
 
     steps:
       - name: Checkout repository
