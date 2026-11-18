@@ -7,8 +7,10 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -36,6 +38,12 @@ class Trip(Base):
             "last_alerted_level IS NULL OR "
             "last_alerted_level IN ('Green', 'Yellow', 'Orange', 'Red')",
             name="ck_trips_last_alerted_level",
+        ),
+        Index(
+            "uq_trips_one_active_per_user",
+            "user_id",
+            unique=True,
+            postgresql_where=text("status = 'active'"),
         ),
     )
 

@@ -1,8 +1,10 @@
+import logging
 from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -17,8 +19,13 @@ from ..schemas.trip_location import (
     TripLocationResponse,
 )
 from ..security.deps import get_current_user
-from ..services.trip_alert_service import check_trip_hazards
+from ..services.trip_alert_service import (
+    check_trip_hazards,
+    deliver_pending_notifications,
+)
 
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/trips", tags=["trips"])
 
@@ -55,9 +62,24 @@ def start_trip(
     )
 
     db.add(trip)
-    db.commit()
-    db.refresh(trip)
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
 
+        original_error = getattr(exc, "orig", None)
+        diagnostic = getattr(original_error, "diag", None)
+        constraint_name = getattr(diagnostic, "constraint_name", None)
+
+        if constraint_name == "uq_trips_one_active_per_user":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="You already have an active trip.",
+            ) from exc
+
+        raise
+
+    db.refresh(trip)
     return trip
 
 
@@ -102,6 +124,16 @@ def update_trip_location(
 
     db.commit()
 
+    # GPS update is already committed. Delivery failures must not
+    # turn a successful location update into an HTTP 500 response.
+    try:
+        deliver_pending_notifications(db)
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "Notification delivery failed after trip location update"
+        )
+
     return TripLocationResponse(
         message="Location updated successfully.",
         trip_id=trip.id,
@@ -116,9 +148,16 @@ def end_trip(
     db: DbSession,
     current_user=Depends(get_current_user),
 ):
-    trip = db.get(Trip, trip_id)
+    trip = db.scalar(
+        select(Trip)
+        .where(
+            Trip.id == trip_id,
+            Trip.user_id == current_user.id,
+        )
+        .with_for_update()
+    )
 
-    if trip is None or trip.user_id != current_user.id:
+    if trip is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Trip not found.",

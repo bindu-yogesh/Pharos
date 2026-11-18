@@ -283,8 +283,9 @@ def test_assess_upcoming_route_triggers_escalation():
         "_get_upcoming_segments",
         return_value=([{"segment_id": 2}], 10.0),
     ), patch.object(
-        trip_monitor.asyncio,
-        "run",
+        trip_monitor,
+        "_fetch_weather_for_segments",
+        new_callable=AsyncMock,
         return_value={2: {"precipitation_mm": 20}},
     ), patch.object(
         trip_monitor,
@@ -323,8 +324,9 @@ def test_incomplete_route_assessment_does_not_escalate():
         "_get_upcoming_segments",
         return_value=([{"segment_id": 2}], 10.0),
     ), patch.object(
-        trip_monitor.asyncio,
-        "run",
+        trip_monitor,
+        "_fetch_weather_for_segments",
+        new_callable=AsyncMock,
         return_value={2: None},
     ), patch.object(
         trip_monitor,

@@ -274,3 +274,25 @@ def test_classify_weather_risk_rejects_infinite_values():
         "precipitation_mm": float("inf"),
         "visibility_m": float("nan"),
     }) == (None, None)
+@pytest.mark.parametrize("field,value", [
+    ("distance", float("nan")),
+    ("distance", float("inf")),
+    ("distance", -1),
+    ("duration", float("nan")),
+    ("duration", float("inf")),
+    ("duration", -1),
+])
+def test_process_osrm_route_rejects_invalid_distance_and_duration(field, value):
+    route = {
+        "distance": 1500,
+        "duration": 120,
+        "geometry": {
+            "type": "LineString",
+            "coordinates": [[75.0, 12.0], [75.01, 12.0]],
+        },
+        "legs": [{"annotation": {"distance": [1500]}}],
+    }
+    route[field] = value
+
+    with pytest.raises(ValueError):
+        process_osrm_route(route)

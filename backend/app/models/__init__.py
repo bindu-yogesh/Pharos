@@ -15,4 +15,7 @@ __all__ = [
     "IncidentHistory",
     "Trip",
     "DeviceToken",
+    "NotificationOutbox",
 ]
+
+from .notification_outbox import NotificationOutbox
