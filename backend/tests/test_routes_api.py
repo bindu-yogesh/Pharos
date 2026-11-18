@@ -46,6 +46,11 @@ class MockOSRMResponse:
                         "type": "LineString",
                         "coordinates": coordinates,
                     },
+                    "legs": [{
+                        "annotation": {
+                            "distance": [28566.4 / 28] * 28,
+                        },
+                    }],
                 }
             ],
         }
@@ -73,6 +78,8 @@ def test_route_endpoints_return_success(path, monkeypatch):
     assert response.status_code == 200
 
     body = response.json()
+    if path == "/route":
+        body = body["routes"][0]
     assert body["distance_m"] == 28566.4
     assert body["duration_s"] == 1233.0
     assert len(body["segments"]) == 28
@@ -87,13 +94,14 @@ def test_reverse_route_returns_segments_in_reverse_order(monkeypatch):
 
     assert response.status_code == 200
 
+    route = response.json()["routes"][0]
     segment_ids = [
         segment["segment_id"]
-        for segment in response.json()["segments"]
+        for segment in route["segments"]
     ]
 
-    assert segment_ids[0] == 28
-    assert segment_ids[-1] == 1
+    assert segment_ids[0] == 1
+    assert segment_ids[-1] == 28
 
 
 def test_unsupported_corridor_is_rejected_before_osrm(monkeypatch):
@@ -111,7 +119,7 @@ def test_unsupported_corridor_is_rejected_before_osrm(monkeypatch):
         "destination": {"latitude": 13.0827, "longitude": 80.2707},
     }
 
-    response = client.post("/route", json=payload)
+    response = client.post("/routes/assess", json=payload)
 
     assert response.status_code == 422
     assert osrm_called is False
@@ -123,7 +131,7 @@ def test_weather_parameters_must_be_provided_together():
         "district": "DAKSHIN KANNADA",
     }
 
-    response = client.post("/route", json=payload)
+    response = client.post("/routes/assess", json=payload)
 
     assert response.status_code == 422
 
@@ -173,7 +181,7 @@ def test_missing_weather_observation_returns_null_date_and_rainfall(monkeypatch)
         "observation_date": "2026-11-16",
     }
 
-    response = client.post("/route", json=payload)
+    response = client.post("/routes/assess", json=payload)
 
     assert response.status_code == 200
 
@@ -213,10 +221,11 @@ def test_live_data_request_passes_duration_and_returns_segment_metadata(monkeypa
     )
 
     assert response.status_code == 200
-    assert response.json()["duration_s"] == 1233.0
+    route = response.json()["routes"][0]
+    assert route["duration_s"] == 1233.0
 
     segment = next(
-        item for item in response.json()["segments"]
+        item for item in route["segments"]
         if item["segment_id"] == 1
     )
     assert segment["visibility_m"] == 850.0
@@ -230,8 +239,9 @@ def test_reverse_route_passes_reverse_flag_to_risk_scorer(monkeypatch):
     response = client.post("/route", json=REVERSE_PAYLOAD)
 
     assert response.status_code == 200
-    assert response.json()["segments"][0]["segment_id"] == 28
-    assert response.json()["segments"][-1]["segment_id"] == 1
+    route = response.json()["routes"][0]
+    assert route["segments"][0]["segment_id"] == 1
+    assert route["segments"][-1]["segment_id"] == 28
 
 
 def test_forward_route_passes_forward_flag_to_risk_scorer(monkeypatch):
@@ -240,7 +250,8 @@ def test_forward_route_passes_forward_flag_to_risk_scorer(monkeypatch):
     response = client.post("/route", json=FORWARD_PAYLOAD)
 
     assert response.status_code == 200
-    assert response.json()["segments"][0]["segment_id"] == 1
+    route = response.json()["routes"][0]
+    assert route["segments"][0]["segment_id"] == 1
 @pytest.mark.parametrize(
     "route_data",
     [

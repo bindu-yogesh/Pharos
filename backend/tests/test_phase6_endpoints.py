@@ -55,8 +55,8 @@ def test_route_success(client):
         response = client.post(
             "/route",
             json={
-                "origin": {"latitude": 12.0, "longitude": 75.0},
-                "destination": {"latitude": 12.0, "longitude": 75.02},
+                "origin": {"latitude": 12.879189, "longitude": 75.721304},
+                "destination": {"latitude": 12.831463, "longitude": 75.542298},
             },
         )
 
@@ -75,8 +75,8 @@ def test_route_osrm_failure(client):
         response = client.post(
             "/route",
             json={
-                "origin": {"latitude": 12.0, "longitude": 75.0},
-                "destination": {"latitude": 12.1, "longitude": 75.1},
+                "origin": {"latitude": 12.879189, "longitude": 75.721304},
+                "destination": {"latitude": 12.831463, "longitude": 75.542298},
             },
         )
 
@@ -424,8 +424,8 @@ def test_route_empty_collection_returns_502(client):
         response = client.post(
             "/route",
             json={
-                "origin": {"latitude": 12.0, "longitude": 75.0},
-                "destination": {"latitude": 12.1, "longitude": 75.1},
+                "origin": {"latitude": 12.879189, "longitude": 75.721304},
+                "destination": {"latitude": 12.831463, "longitude": 75.542298},
             },
         )
 
