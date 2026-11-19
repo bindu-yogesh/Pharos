@@ -1,7 +1,14 @@
-import 'package:flutter/material.dart';
-import 'screens/main_navigation.dart';
 
-void main() {
+import 'package:flutter/material.dart';
+
+import 'screens/main_navigation.dart';
+import 'services/auth_service.dart';
+
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  await AuthService.restoreSession();
+
   runApp(const PharosApp());
 }
 
