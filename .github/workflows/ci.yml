@@ -6,6 +6,7 @@ on:
       - main
       - feature/backend
       - feature/phase-3-auth
+      - feature/phase-6-routing
   pull_request:
     branches:
       - main
@@ -31,7 +32,7 @@ jobs:
 
     env:
       DATABASE_URL: postgresql+psycopg://pharos_user:pharos_password@localhost:5432/pharos
-      JWT_SECRET: ci-test-secret
+      JWT_SECRET: pharos-ci-only-secret-not-for-production-2026
 
     steps:
       - name: Checkout repository
