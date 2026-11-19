@@ -3,6 +3,7 @@
 
 from datetime import datetime
 from typing import Any
+import math
 
 from geoalchemy2 import Geography
 from sqlalchemy import cast, func, or_, select
@@ -10,10 +11,27 @@ from sqlalchemy.orm import Session
 
 from ..models.incident import IncidentHistory
 from ..models.report import Report
+from ..models.segment import RoadSegment
 from risk_engine.scorer import calculate_risk
 
 
 DEFAULT_PROXIMITY_M = 500.0
+
+
+def _validate_coordinate(point: list[float], name: str) -> None:
+    if not isinstance(point, (list, tuple)) or len(point) != 2:
+        raise ValueError(f"{name} must be a [longitude, latitude] pair")
+
+    lon, lat = point
+    if (
+        isinstance(lon, bool) or isinstance(lat, bool)
+        or not isinstance(lon, (int, float))
+        or not isinstance(lat, (int, float))
+        or not math.isfinite(lon) or not math.isfinite(lat)
+        or not -180 <= lon <= 180
+        or not -90 <= lat <= 90
+    ):
+        raise ValueError(f"{name} contains invalid longitude or latitude")
 
 
 def assess_segment_risk(
@@ -38,10 +56,17 @@ def assess_segment_risk(
     """
 
     # Validate proximity.
-    if proximity_m <= 0:
-        raise ValueError("proximity_m must be greater than zero")
+    if (
+        isinstance(proximity_m, bool)
+        or not isinstance(proximity_m, (int, float))
+        or not math.isfinite(proximity_m)
+        or proximity_m <= 0
+    ):
+        raise ValueError("proximity_m must be a finite number greater than zero")
 
-    # Validate endpoints.
+    # Validate endpoints and all route coordinates.
+    _validate_coordinate(start, "start")
+    _validate_coordinate(end, "end")
     if len(start) != 2 or len(end) != 2:
         raise ValueError(
             "Segment endpoints must be [longitude, latitude]"
@@ -54,10 +79,8 @@ def assess_segment_risk(
             "Segment must contain at least two coordinates"
         )
 
-    if any(len(point) != 2 for point in segment_coordinates):
-        raise ValueError(
-            "Segment coordinates must be [longitude, latitude] pairs"
-        )
+    for index, point in enumerate(segment_coordinates):
+        _validate_coordinate(point, f"coordinates[{index}]")
 
     # Build the complete route segment geometry.
     coordinate_text = ", ".join(
@@ -106,8 +129,25 @@ def assess_segment_risk(
     if nearby_incident is not None:
         incident_nearby: bool | None = True
     elif unlocated_incident is not None:
-        # We cannot safely conclude that no nearby historical incident exists.
-        incident_nearby = None
+        # Unlocated historical records only create uncertainty within the
+        # geographic coverage of the historical road corridor.
+        corridor_nearby = db.scalar(
+            select(RoadSegment.id)
+            .where(
+                func.ST_DWithin(
+                    cast(
+                        RoadSegment.geom,
+                        Geography(srid=4326),
+                    ),
+                    segment_geography,
+                    proximity_m,
+                ),
+            )
+            .limit(1)
+        )
+        incident_nearby = (
+            None if corridor_nearby is not None else False
+        )
     else:
         incident_nearby = False
 
@@ -139,15 +179,24 @@ def assess_segment_risk(
     # Classify steep slope.
     steep_slope: bool | None = None
 
-    if slope_percent is not None and slope_threshold_percent is not None:
-        if slope_threshold_percent <= 0:
-            raise ValueError(
-                "slope_threshold_percent must be greater than zero"
-            )
+    for value, name in (
+        (slope_percent, "slope_percent"),
+        (slope_threshold_percent, "slope_threshold_percent"),
+    ):
+        if value is not None and (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+        ):
+            raise ValueError(f"{name} must be a finite number")
 
-        steep_slope = (
-            abs(slope_percent) >= slope_threshold_percent
+    if slope_threshold_percent is not None and slope_threshold_percent <= 0:
+        raise ValueError(
+            "slope_threshold_percent must be greater than zero"
         )
+
+    if slope_percent is not None and slope_threshold_percent is not None:
+        steep_slope = abs(slope_percent) >= slope_threshold_percent
 
     # Keep the existing six-boolean risk contract.
     flags = {
@@ -175,13 +224,6 @@ def assess_segment_risk(
         "proximity_m": proximity_m,
     }
 
-    if not missing_inputs:
-        result.update(calculate_risk(**flags))
-    else:
-        result.update({
-            "score": None,
-            "level": None,
-            "reasons": [],
-        })
+    result.update(calculate_risk(**flags))
 
     return result

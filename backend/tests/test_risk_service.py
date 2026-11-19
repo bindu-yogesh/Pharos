@@ -52,13 +52,23 @@ def test_complete_assessment_uses_existing_scorer(monkeypatch):
 def test_unknown_inputs_do_not_generate_a_score(monkeypatch):
     db = Mock()
     db.scalar.side_effect = [None,None,None]
-    scorer = Mock()
+    scorer = Mock(return_value={
+        "risk_assessment": "incomplete",
+        "risk_data_gaps": [
+            "heavy_rain", "steep_slope",
+            "heavy_traffic", "low_visibility",
+        ],
+        "score": None,
+        "level": None,
+        "reasons": ["Heavy rain"],
+    })
     monkeypatch.setattr(risk_service, "calculate_risk", scorer)
 
     result = risk_service.assess_segment_risk(
         db,
         start=[75.0, 12.0],
         end=[75.01, 12.01],
+        heavy_rain=True,
     )
 
     assert result["risk_assessment"] == "incomplete"
@@ -70,7 +80,11 @@ def test_unknown_inputs_do_not_generate_a_score(monkeypatch):
         "heavy_traffic",
         "low_visibility",
     }
-    scorer.assert_not_called()
+    assert result["risk_flags"]["landslide_history"] is False
+    assert result["reasons"] == ["Heavy rain"]
+    assert result["score"] is None
+    assert result["level"] is None
+    scorer.assert_called_once()
 
 
 def test_invalid_proximity_is_rejected():
@@ -101,9 +115,15 @@ def test_unlocated_historical_incidents_remain_unknown(monkeypatch):
     db = Mock()
     # No nearby geocoded incident, unlocated incident exists,
     # no nearby active hazard report.
-    db.scalar.side_effect = [None, 99, None]
+    db.scalar.side_effect = [None, 99, 1, None]
 
-    scorer = Mock()
+    scorer = Mock(return_value={
+        "risk_assessment": "incomplete",
+        "risk_data_gaps": ["landslide_history"],
+        "score": None,
+        "level": None,
+        "reasons": [],
+    })
     monkeypatch.setattr(risk_service, "calculate_risk", scorer)
 
     result = risk_service.assess_segment_risk(
@@ -120,7 +140,9 @@ def test_unlocated_historical_incidents_remain_unknown(monkeypatch):
     assert result["risk_flags"]["landslide_history"] is None
     assert result["risk_assessment"] == "incomplete"
     assert "landslide_history" in result["risk_data_gaps"]
-    scorer.assert_not_called()
+    assert result["score"] is None
+    assert result["level"] is None
+    scorer.assert_called_once()
 
 
 def test_nearby_historical_incident_is_true_even_with_unlocated_records(

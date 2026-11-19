@@ -13,7 +13,7 @@ from sqlalchemy import cast, func, select
 from sqlalchemy.orm import Session
 
 from ..database import get_db
-from ..integrations.osrm import OSRMError, get_route
+from ..integrations.osrm import OSRMError, OSRMTimeoutError, get_route
 from ..integrations.weather import (
     WeatherForecastError,
     get_weather_forecast,
@@ -27,6 +27,8 @@ from ..services.route_service import (
     classify_weather_risk,
     process_osrm_route,
 )
+from .risk_routes import identify_corridor_direction
+from risk_engine.score_route import load_route_segments
 
 
 router = APIRouter(tags=["routes"])
@@ -87,17 +89,19 @@ def calculate_bearing(
 async def _forecast_for_segment(
     segment: dict,
     arrival_time: datetime,
+    semaphore: asyncio.Semaphore,
 ) -> dict | None:
     """Retrieve forecast data at the midpoint of a route segment."""
     start_lon, start_lat = segment["start"]
     end_lon, end_lat = segment["end"]
 
     try:
-        return await get_weather_forecast(
-            latitude=(start_lat + end_lat) / 2,
-            longitude=(start_lon + end_lon) / 2,
-            arrival_time=arrival_time,
-        )
+        async with semaphore:
+            return await get_weather_forecast(
+                latitude=(start_lat + end_lat) / 2,
+                longitude=(start_lon + end_lon) / 2,
+                arrival_time=arrival_time,
+            )
     except WeatherForecastError:
         # Missing weather must not be interpreted as safe weather.
         return None
@@ -109,24 +113,40 @@ async def _forecast_route_segments(
     route_distance_m: float,
 ) -> dict[int, dict | None]:
     """Estimate segment arrival times and fetch their forecasts."""
-    if not segments or route_duration_s < 0 or route_distance_m <= 0:
-        return {
-            segment["segment_id"]: None
-            for segment in segments
-        }
+    if not segments:
+        return {}
 
-    total_segment_length = sum(
-        float(segment["length_m"])
-        for segment in segments
-    )
+    for name, value, allow_zero in (
+        ("route_duration_s", route_duration_s, True),
+        ("route_distance_m", route_distance_m, False),
+    ):
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or (value < 0 if allow_zero else value <= 0)
+        ):
+            raise ValueError(f"Invalid {name}")
 
-    if total_segment_length <= 0:
-        return {
-            segment["segment_id"]: None
-            for segment in segments
-        }
+    segment_lengths = []
+    for segment in segments:
+        length = segment.get("length_m")
+        if (
+            isinstance(length, bool)
+            or not isinstance(length, (int, float))
+            or not math.isfinite(length)
+            or length <= 0
+        ):
+            raise ValueError("Invalid route segment length")
+        segment_lengths.append(float(length))
+
+    total_segment_length = sum(segment_lengths)
+
+    if not math.isfinite(total_segment_length) or total_segment_length <= 0:
+        raise ValueError("Invalid total route segment length")
 
     departure_time = datetime.now(timezone.utc)
+    semaphore = asyncio.Semaphore(5)
     cumulative_distance = 0.0
     tasks = []
 
@@ -144,7 +164,7 @@ async def _forecast_route_segments(
         )
 
         tasks.append(
-            _forecast_for_segment(segment, arrival_time)
+            _forecast_for_segment(segment, arrival_time, semaphore)
         )
 
     forecasts = await asyncio.gather(
@@ -173,6 +193,12 @@ async def calculate_route(
 ):
     """Calculate alternative routes and assess their available risk data."""
 
+    identify_corridor_direction(
+        request.origin,
+        request.destination,
+        load_route_segments(),
+    )
+
     origin = (
         request.origin.longitude,
         request.origin.latitude,
@@ -191,9 +217,14 @@ async def calculate_route(
             alternatives=True,
         )
 
+        route_collection = data.get("routes")
+
+        if not isinstance(route_collection, list) or not route_collection:
+            raise OSRMError("No valid route was found between these locations.")
+
         routes = []
 
-        for route in data["routes"]:
+        for route in route_collection:
 
             # Step 2: Normalize the OSRM route.
             processed = process_osrm_route(route)
@@ -239,6 +270,12 @@ async def calculate_route(
             processed.update(overall_risk)
 
             routes.append(processed)
+
+    except OSRMTimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail=str(exc),
+        ) from exc
 
     except OSRMError as exc:
         raise HTTPException(
@@ -451,9 +488,10 @@ async def get_location_risk(
     # Step 7: Fetch current weather forecasts for selected segments.
     forecast_time = datetime.now(timezone.utc)
 
+    semaphore = asyncio.Semaphore(5)
     weather_forecasts = await asyncio.gather(
         *[
-            _forecast_for_segment(candidate, forecast_time)
+            _forecast_for_segment(candidate, forecast_time, semaphore)
             for candidate in candidates
         ],
         return_exceptions=True,

@@ -2,12 +2,17 @@
 
 import httpx
 
-OSRM_BASE_URL = "https://router.project-osrm.org"
+from ..core.config import settings
+
 OSRM_TIMEOUT_SECONDS = 10.0
 
 
 class OSRMError(Exception):
     """Raised when the OSRM routing service fails."""
+
+
+class OSRMTimeoutError(OSRMError):
+    """Raised when the OSRM routing request times out."""
 
 
 async def get_route(
@@ -24,7 +29,7 @@ async def get_route(
         f"{origin[0]},{origin[1]};"
         f"{destination[0]},{destination[1]}"
     )
-    url = f"{OSRM_BASE_URL}/route/v1/driving/{coordinates}"
+    url = f"{settings.osrm_base_url}/route/v1/driving/{coordinates}"
 
     params = {
     "overview": "full",
@@ -42,13 +47,22 @@ async def get_route(
             response.raise_for_status()
             data = response.json()
     except httpx.TimeoutException as exc:
-        raise OSRMError("OSRM routing request timed out.") from exc
+        raise OSRMTimeoutError("OSRM routing request timed out.") from exc
     except httpx.HTTPError as exc:
         raise OSRMError("OSRM routing service is unavailable.") from exc
     except ValueError as exc:
         raise OSRMError("OSRM returned an invalid response.") from exc
 
-    if data.get("code") != "Ok" or not data.get("routes"):
+    if not isinstance(data, dict):
+        raise OSRMError("OSRM returned an invalid response.")
+
+    routes = data.get("routes")
+    if (
+        data.get("code") != "Ok"
+        or not isinstance(routes, list)
+        or not routes
+        or not all(isinstance(route, dict) for route in routes)
+    ):
         raise OSRMError("No valid route was found between these locations.")
 
     return data

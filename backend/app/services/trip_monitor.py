@@ -425,6 +425,13 @@ def monitor_active_trips() -> None:
                     trip_id,
                 )
 
+        # Deliver notifications after trip updates have been committed.
+        try:
+            deliver_pending_notifications(db)
+        except Exception:
+            db.rollback()
+            logger.exception("Notification outbox delivery failed")
+
     except Exception:
         db.rollback()
         logger.exception("Trip monitoring cycle failed")

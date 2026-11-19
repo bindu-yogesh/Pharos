@@ -4,6 +4,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -56,6 +57,24 @@ def register(
     try:
         db.commit()
         db.refresh(user)
+    except IntegrityError as exc:
+        db.rollback()
+
+        original_error = exc.orig
+        sqlstate = (
+            getattr(original_error, "sqlstate", None)
+            or getattr(original_error, "pgcode", None)
+        )
+        diagnostic = getattr(original_error, "diag", None)
+        constraint_name = getattr(diagnostic, "constraint_name", None)
+
+        if sqlstate == "23505" and constraint_name == "ix_users_email":
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email is already registered",
+            ) from exc
+
+        raise
     except Exception:
         db.rollback()
         raise

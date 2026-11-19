@@ -1,3 +1,4 @@
+
 name: Pharos CI
 
 on:
@@ -14,7 +15,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-
     services:
       postgres:
         image: postgis/postgis:17-3.5
@@ -29,7 +29,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-
     env:
       DATABASE_URL: postgresql+psycopg://pharos_user:pharos_password@localhost:5432/pharos
       JWT_SECRET: pharos-ci-only-secret-not-for-production-2026
