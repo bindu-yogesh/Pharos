@@ -1,13 +1,12 @@
-
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import '../config/api_config.dart';
 import '../models/route_response.dart';
 
 class RouteApiService {
-  static const String baseUrl = 'http://127.0.0.1:8001';
+  static String get baseUrl => ApiConfig.baseUrl;
 
-  // Stores the latest route response for other screens.
   static final ValueNotifier<RouteCollectionResponse?> latestRoute =
       ValueNotifier<RouteCollectionResponse?>(null);
 
@@ -17,7 +16,7 @@ class RouteApiService {
     required double destinationLatitude,
     required double destinationLongitude,
   }) async {
-    final url = Uri.parse('$baseUrl/route');
+    final url = Uri.parse('${ApiConfig.baseUrl}/route');
 
     final requestBody = {
       'origin': {
@@ -30,28 +29,43 @@ class RouteApiService {
       },
     };
 
-    final response = await http
-        .post(
-          url,
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode(requestBody),
-        )
-        .timeout(const Duration(seconds: 60));
+    try {
+      final response = await http
+          .post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode(requestBody),
+          )
+          .timeout(const Duration(seconds: 60));
 
-    if (response.statusCode == 200) {
-      final Map<String, dynamic> data =
-          jsonDecode(response.body) as Map<String, dynamic>;
+      if (response.statusCode == 200) {
+        final decoded = jsonDecode(response.body);
 
-      final result = RouteCollectionResponse.fromJson(data);
+        if (decoded is! Map<String, dynamic>) {
+          throw const FormatException(
+            'Invalid route response format from server.',
+          );
+        }
 
-      // Make the response available to the Live Map screen.
-      latestRoute.value = result;
+        final result = RouteCollectionResponse.fromJson(decoded);
+        latestRoute.value = result;
+        return result;
+      }
 
-      return result;
+      throw Exception(
+        'Route API failed (${response.statusCode}): ${response.body}',
+      );
+    } on http.ClientException {
+      throw Exception(
+        'Cannot connect to the server. Check that the backend is running.',
+      );
+    } on FormatException {
+      throw Exception('The server returned an invalid route response.');
+    } on Exception catch (e) {
+      if (e.toString().contains('TimeoutException')) {
+        throw Exception('Route request timed out. Please try again.');
+      }
+      rethrow;
     }
-
-    throw Exception(
-      'Route API failed (${response.statusCode}): ${response.body}',
-    );
   }
 }
