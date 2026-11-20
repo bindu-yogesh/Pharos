@@ -1,4 +1,4 @@
-from typing import Annotated
+﻿from typing import Annotated
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import select
@@ -24,22 +24,22 @@ def register_device(
     db: DbSession,
     current_user=Depends(get_current_user),
 ):
-    """Register a device or transfer an existing token to its owner."""
+    """Register an FCM registration token for the authenticated user."""
 
-    token = db.scalar(
+    device = db.scalar(
         select(DeviceToken).where(
-            DeviceToken.fcm_token == request.fcm_token
+            DeviceToken.fcm_token == request.token
         )
     )
 
-    if token is None:
-        token = DeviceToken(
+    if device is None:
+        device = DeviceToken(
             user_id=current_user.id,
-            fcm_token=request.fcm_token,
+            fcm_token=request.token,
         )
-        db.add(token)
+        db.add(device)
     else:
-        token.user_id = current_user.id
+        device.user_id = current_user.id
 
     db.commit()
 

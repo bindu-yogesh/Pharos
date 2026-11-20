@@ -1,5 +1,8 @@
+
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+
+import '../services/notification_service.dart';
 import 'main_navigation.dart';
 
 class HomeScreen extends StatelessWidget {
@@ -34,6 +37,30 @@ class HomeScreen extends StatelessWidget {
         );
       },
     );
+  }
+
+  Future<void> _enableNotifications(BuildContext context) async {
+    try {
+      final message =
+          await NotificationService.enableNotifications();
+
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            e.toString().replaceFirst('Exception: ', ''),
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override
@@ -90,7 +117,60 @@ class HomeScreen extends StatelessWidget {
                 ],
               ),
             ),
+
             const SizedBox(height: 16),
+
+            // Enable browser push notifications.
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: const Color(0xFF162032),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: Colors.cyanAccent.withOpacity(0.35)),
+              ),
+              child: Column(
+                children: [
+                  const Icon(
+                    Icons.notifications_active_outlined,
+                    color: Colors.cyanAccent,
+                    size: 32,
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Stay Updated with Pharos',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Enable notifications to receive safety alerts.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton.icon(
+                      onPressed: () => _enableNotifications(context),
+                      icon: const Icon(Icons.notifications_active),
+                      label: const Text('Enable Notifications'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.cyanAccent,
+                        foregroundColor: const Color(0xFF0F172A),
+                        padding: const EdgeInsets.symmetric(vertical: 13),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
             GridView.count(
               crossAxisCount: 2,
               shrinkWrap: true,

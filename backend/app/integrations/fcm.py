@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 
 import firebase_admin
 from firebase_admin import credentials, messaging
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 
 
 def send(token: str, title: str, body: str) -> bool:
-    """Send one push notification. Return False if FCM is unavailable."""
+    """Send a push notification to an FCM registration token."""
 
     credentials_path = settings.fcm_credentials_path
 
@@ -29,9 +29,15 @@ def send(token: str, title: str, body: str) -> bool:
                 body=body,
             ),
             token=token,
+            webpush=messaging.WebpushConfig(
+                notification=messaging.WebpushNotification(
+                    icon="/icons/Icon-192.png",
+                )
+            ),
         )
 
         messaging.send(message)
+        logger.info("FCM notification accepted by Firebase.")
         return True
 
     except Exception:
