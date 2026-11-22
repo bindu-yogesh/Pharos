@@ -123,10 +123,12 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
       if (!mounted) return;
 
       try {
-        _mapController.move(
-          LatLng(position.latitude, position.longitude),
-          15,
-        );
+        if (!_routeCameraFitted) {
+          _mapController.move(
+            LatLng(position.latitude, position.longitude),
+            15,
+          );
+        }
       } catch (_) {
         // The map may not be attached yet.
       }
@@ -395,7 +397,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
             left: 8,
             top: 155,
             child: Text(
-              '© OpenStreetMap contributors',
+              'Â© OpenStreetMap contributors',
               style: TextStyle(
                 fontSize: 10,
                 color: Colors.black87,
