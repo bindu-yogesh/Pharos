@@ -36,7 +36,7 @@ class RouteApiService {
             headers: {'Content-Type': 'application/json'},
             body: jsonEncode(requestBody),
           )
-          .timeout(const Duration(seconds: 60));
+          .timeout(const Duration(seconds: 180));
 
       if (response.statusCode == 200) {
         final decoded = jsonDecode(response.body);
