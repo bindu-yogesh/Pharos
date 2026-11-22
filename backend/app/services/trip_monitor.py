@@ -1,4 +1,4 @@
-
+﻿
 import asyncio
 import logging
 import math
@@ -18,6 +18,7 @@ from .route_service import assess_route_segments
 from .trip_alert_service import (
     check_trip_hazards,
     check_trip_risk_escalation,
+    deliver_pending_notifications,
 )
 
 logger = logging.getLogger(__name__)

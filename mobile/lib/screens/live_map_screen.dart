@@ -8,6 +8,7 @@ import 'package:latlong2/latlong.dart';
 import 'main_navigation.dart';
 import '../services/route_api_service.dart';
 import '../services/risk_api_service.dart';
+import '../services/trip_api_service.dart';
 
 class LiveMapScreen extends StatefulWidget {
   const LiveMapScreen({super.key});
@@ -28,6 +29,9 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
   bool _fetchingRisk = false;
   String? _locationError;
   DateTime? _lastRiskFetch;
+  int? _activeTripId;
+  bool _tripBusy = false;
+  DateTime? _lastTripLocationUpdate;
 
   static const LatLng _defaultCenter = LatLng(12.9716, 77.5946);
 
@@ -39,15 +43,13 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
 
   Future<void> _startTracking() async {
     try {
-      final serviceEnabled =
-          await Geolocator.isLocationServiceEnabled();
+      final serviceEnabled = await Geolocator.isLocationServiceEnabled();
 
       if (!serviceEnabled) {
         throw Exception('Please enable your device location service.');
       }
 
-      LocationPermission permission =
-          await Geolocator.checkPermission();
+      LocationPermission permission = await Geolocator.checkPermission();
 
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
@@ -72,12 +74,12 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
       _updatePosition(initialPosition);
       await _refreshRisk();
 
-      _positionSubscription =
-          Geolocator.getPositionStream(
+      _positionSubscription = Geolocator.getPositionStream(
         locationSettings: settings,
       ).listen(
         (position) {
           _updatePosition(position);
+          _sendTripLocation(position);
 
           final lastFetch = _lastRiskFetch;
           if (lastFetch == null ||
@@ -142,13 +144,118 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
     _lastRiskFetch = DateTime.now();
 
     try {
-      final result =
-          await RiskApiService.getCurrentLocationRisk();
+      final result = await RiskApiService.getCurrentLocationRisk();
       debugPrint('LIVE RISK UPDATED: $result');
     } catch (e) {
       debugPrint('LIVE RISK ERROR: $e');
     } finally {
       _fetchingRisk = false;
+    }
+  }
+
+  Future<void> _startTrip() async {
+    if (_tripBusy || _activeTripId != null) return;
+
+    final routeData = RouteApiService.latestRouteJson;
+    if (routeData == null ||
+        routeData['routes'] is! List ||
+        (routeData['routes'] as List).isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Calculate a route before starting a trip.'),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _tripBusy = true);
+
+    try {
+      final routes = routeData['routes'] as List;
+      final selectedRoute = Map<String, dynamic>.from(routes.first as Map);
+
+      final result = await TripApiService.startTrip(
+        routeJson: {
+          'routes': [selectedRoute]
+        },
+      );
+
+      if (!mounted) return;
+
+      setState(() {
+        _activeTripId = result['id'] as int;
+        _lastTripLocationUpdate = null;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Trip #${result['id']} started.')),
+      );
+
+      if (_currentPosition != null) {
+        await _sendTripLocation(_currentPosition!);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not start trip: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _tripBusy = false);
+    }
+  }
+
+  Future<void> _sendTripLocation(Position position) async {
+    final tripId = _activeTripId;
+    if (tripId == null) return;
+
+    final lastUpdate = _lastTripLocationUpdate;
+    if (lastUpdate != null &&
+        DateTime.now().difference(lastUpdate).inSeconds < 15) {
+      return;
+    }
+
+    _lastTripLocationUpdate = DateTime.now();
+
+    try {
+      await TripApiService.updateLocation(
+        tripId: tripId,
+        latitude: position.latitude,
+        longitude: position.longitude,
+      );
+      debugPrint('TRIP $tripId LOCATION UPDATED');
+    } catch (e) {
+      debugPrint('TRIP LOCATION UPDATE ERROR: $e');
+    }
+  }
+
+  Future<void> _endTrip() async {
+    final tripId = _activeTripId;
+    if (tripId == null || _tripBusy) return;
+
+    setState(() => _tripBusy = true);
+
+    try {
+      await TripApiService.endTrip(tripId: tripId);
+
+      if (!mounted) return;
+
+      setState(() {
+        _activeTripId = null;
+        _lastTripLocationUpdate = null;
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Trip ended successfully.')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not end trip: $e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _tripBusy = false);
     }
   }
 
@@ -175,11 +282,9 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
             ),
             children: [
               TileLayer(
-                urlTemplate:
-                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                 userAgentPackageName: 'com.example.road_safe',
               ),
-
               ValueListenableBuilder(
                 valueListenable: RouteApiService.latestRoute,
                 builder: (context, response, child) {
@@ -228,7 +333,6 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                   );
                 },
               ),
-
               if (_currentPosition != null)
                 MarkerLayer(
                   markers: [
@@ -249,7 +353,6 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                 ),
             ],
           ),
-
           Positioned(
             top: 12,
             left: 12,
@@ -306,7 +409,6 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
               },
             ),
           ),
-
           Positioned(
             bottom: 30,
             left: 12,
@@ -328,7 +430,6 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                       style: const TextStyle(color: Colors.white),
                     ),
                   ),
-
                 if (_currentPosition != null)
                   Container(
                     width: double.infinity,
@@ -344,9 +445,7 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                       style: const TextStyle(color: Colors.white),
                     ),
                   ),
-
                 const SizedBox(height: 8),
-
                 ValueListenableBuilder(
                   valueListenable: RouteApiService.latestRoute,
                   builder: (context, response, child) {
@@ -374,15 +473,42 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
                     );
                   },
                 ),
+                const SizedBox(height: 10),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _tripBusy
+                        ? null
+                        : (_activeTripId == null ? _startTrip : _endTrip),
+                    icon: _tripBusy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : Icon(_activeTripId == null
+                            ? Icons.play_arrow
+                            : Icons.stop),
+                    label: Text(
+                      _tripBusy
+                          ? 'PLEASE WAIT...'
+                          : (_activeTripId == null ? 'START TRIP' : 'END TRIP'),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor:
+                          _activeTripId == null ? Colors.green : Colors.red,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
-
           if (_loading)
             const Center(
               child: CircularProgressIndicator(),
             ),
-
           Positioned(
             right: 14,
             bottom: 14,
@@ -392,12 +518,11 @@ class _LiveMapScreenState extends State<LiveMapScreen> {
               child: const Icon(Icons.my_location),
             ),
           ),
-
           const Positioned(
             left: 8,
             top: 155,
             child: Text(
-              'Â© OpenStreetMap contributors',
+              'Ã‚Â© OpenStreetMap contributors',
               style: TextStyle(
                 fontSize: 10,
                 color: Colors.black87,

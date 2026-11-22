@@ -10,6 +10,8 @@ class RouteApiService {
   static final ValueNotifier<RouteCollectionResponse?> latestRoute =
       ValueNotifier<RouteCollectionResponse?>(null);
 
+  static Map<String, dynamic>? latestRouteJson;
+
   static Future<RouteCollectionResponse> calculateRoute({
     required double originLatitude,
     required double originLongitude,
@@ -48,6 +50,7 @@ class RouteApiService {
         }
 
         final result = RouteCollectionResponse.fromJson(decoded);
+        latestRouteJson = Map<String, dynamic>.from(decoded);
         latestRoute.value = result;
         return result;
       }
